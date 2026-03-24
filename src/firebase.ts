@@ -1,0 +1,68 @@
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged, 
+  User,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  collection, 
+  query, 
+  where, 
+  onSnapshot,
+  serverTimestamp,
+  addDoc,
+  orderBy,
+  limit,
+  deleteDoc,
+  getDocs
+} from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAMs0MaziuxSFi9J10L6Zx9udPtTNhBqj8",
+  authDomain: "yomai-c53ed.firebaseapp.com",
+  projectId: "yomai-c53ed",
+  storageBucket: "yomai-c53ed.firebasestorage.app",
+  messagingSenderId: "851954980738",
+  appId: "1:851954980738:web:cdcdce9e829597da3d619b",
+  measurementId: "G-5WNEPEH7H2"
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+
+export { 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  serverTimestamp,
+  addDoc,
+  orderBy,
+  limit,
+  deleteDoc,
+  getDocs
+};
+export type { User };

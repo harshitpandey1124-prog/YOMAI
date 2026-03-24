@@ -1,0 +1,7 @@
+{
+  "name": "YOMAI - YouTube Automation AI",
+  "description": "All-in-one AI suite for YouTube automation with secure Firebase authentication: Voice generation, cloning, subtitles, channel analysis, and more.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
