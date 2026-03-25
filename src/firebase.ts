@@ -28,19 +28,11 @@ import {
   getDocs
 } from 'firebase/firestore';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAMs0MaziuxSFi9J10L6Zx9udPtTNhBqj8",
-  authDomain: "yomai-c53ed.firebaseapp.com",
-  projectId: "yomai-c53ed",
-  storageBucket: "yomai-c53ed.firebasestorage.app",
-  messagingSenderId: "851954980738",
-  appId: "1:851954980738:web:cdcdce9e829597da3d619b",
-  measurementId: "G-5WNEPEH7H2"
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
 
 export { 

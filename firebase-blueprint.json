@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user profile information and subscription plan.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique identifier for the user." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "displayName": { "type": "string", "description": "The user's display name." },
+        "plan": { "type": "string", "enum": ["none", "starter", "pro", "enterprise"], "description": "The user's current subscription plan." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created." }
+      },
+      "required": ["uid", "email", "plan", "createdAt"]
+    },
+    "History": {
+      "title": "Tool Usage History",
+      "description": "Stores a record of tool usage by users.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The ID of the user who used the tool." },
+        "tool": { "type": "string", "description": "The name of the tool used." },
+        "type": { "type": "string", "enum": ["Free", "Paid"], "description": "The type of tool usage." },
+        "input": { "type": "string", "description": "The input provided to the tool." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the tool was used." }
+      },
+      "required": ["userId", "tool", "type", "input", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profile documents."
+    },
+    "/history/{historyId}": {
+      "schema": "History",
+      "description": "Collection of tool usage history items."
+    }
+  }
+}

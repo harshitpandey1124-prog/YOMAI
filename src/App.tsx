@@ -29,12 +29,14 @@ import {
   LogIn,
   LogOut,
   Smartphone,
-  Globe
+  Globe,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { generateVoice, analyzeImage, analyzeText, transcribeAudio, generateSubtitles } from './services/gemini';
 import ReactMarkdown from 'react-markdown';
+import { PAYMENT_QR_CODE } from './constants';
 import { 
   auth, 
   googleProvider, 
@@ -70,6 +72,106 @@ interface HistoryItem {
   type: 'Free' | 'Paid';
   time: string;
   input: string;
+}
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Something went wrong.";
+      try {
+        const parsedError = JSON.parse(this.state.error?.message || "");
+        if (parsedError.error) {
+          errorMessage = `Firestore Error: ${parsedError.error} during ${parsedError.operationType} on ${parsedError.path}`;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+          <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center border border-red-100">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Application Error</h2>
+            <p className="text-gray-600 mb-6">{errorMessage}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 export default function App() {
@@ -113,10 +215,10 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [userPlan, setUserPlan] = useState<string>('starter');
+  const [userPlan, setUserPlan] = useState<string>('none');
   const [currency, setCurrency] = useState<'USD' | 'INR'>('INR');
   const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<{name: string, price: string} | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi'>('card');
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi'>('upi');
   const [upiId, setUpiId] = useState('');
   const [isPaying, setIsPaying] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -134,7 +236,7 @@ export default function App() {
         setDisplayName(user.displayName || user.email?.split('@')[0] || 'User');
         setEmail(user.email || '');
 
-        // Check if user exists in Firestore, if not create with 'starter' plan
+        // Check if user exists in Firestore, if not create with 'none' plan
         const userDocRef = doc(db, 'users', user.uid);
         
         try {
@@ -144,19 +246,21 @@ export default function App() {
               uid: user.uid,
               email: user.email,
               displayName: user.displayName || user.email?.split('@')[0] || 'User',
-              plan: 'starter',
+              plan: 'none',
               createdAt: serverTimestamp()
             });
-            setUserPlan('starter');
+            setUserPlan('none');
           } else {
-            setUserPlan(userDoc.data().plan || 'starter');
+            setUserPlan(userDoc.data().plan || 'none');
           }
 
           // Listen for real-time updates to the user document (e.g. plan changes)
           unsubscribeSnapshot = onSnapshot(userDocRef, (doc) => {
             if (doc.exists()) {
-              setUserPlan(doc.data().plan || 'starter');
+              setUserPlan(doc.data().plan || 'none');
             }
+          }, (error) => {
+            handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
           });
 
           // Fetch user history from Firestore
@@ -176,6 +280,8 @@ export default function App() {
               input: doc.data().input
             }));
             setHistory(historyItems);
+          }, (error) => {
+            handleFirestoreError(error, OperationType.LIST, 'history');
           });
 
         } catch (error) {
@@ -185,7 +291,7 @@ export default function App() {
         setUser(null);
         setDisplayName('');
         setEmail('');
-        setUserPlan('starter');
+        setUserPlan('none');
         setHistory([]);
         if (unsubscribeSnapshot) {
           unsubscribeSnapshot();
@@ -280,12 +386,19 @@ export default function App() {
 
   const processPayment = async () => {
     if (!user || !selectedPlanForPayment) return;
+    
+    // Validate UPI ID if UPI is selected
+    if (paymentMethod === 'upi' && !upiId.trim()) {
+      setPaymentError("Please enter your UPI ID to proceed.");
+      return;
+    }
+
     setIsPaying(true);
     setPaymentError(null);
     
     try {
-      // 1. Simulate Payment Gateway Call (e.g., Stripe)
-      // This is the "Card Payment" success check
+      // 1. Simulate Payment Gateway Call (e.g., Stripe or UPI Verification)
+      // This is the "Payment" success check
       const paymentResponse = await new Promise((resolve) => {
         setTimeout(() => {
           // Simulate 95% success rate for demo purposes
@@ -422,6 +535,13 @@ export default function App() {
   ];
 
   const handleAction = async () => {
+    const isPaidTool = tools.some(t => t.id === activeTool);
+    if (isPaidTool && userPlan === 'none') {
+      setResult("### 🔒 Plan Required\n\nThis is a premium AI tool. Please upgrade your plan to access this feature.");
+      setActiveTool('pricing');
+      return;
+    }
+
     setLoading(true);
     setResult(null);
     setAudioUrl(null);
@@ -485,6 +605,11 @@ export default function App() {
   };
 
   const handleEnhance = async () => {
+    if (userPlan === 'none') {
+      setResult("### 🔒 Plan Required\n\nVideo Enhancement is a premium feature. Please upgrade your plan to access this feature.");
+      setActiveTool('pricing');
+      return;
+    }
     if (!videoFile) return;
     setIsEnhancing(true);
     setEnhancementProgress(0);
@@ -516,6 +641,11 @@ export default function App() {
   };
 
   const handleAnalyzeChannel = async () => {
+    if (userPlan === 'none') {
+      setResult("### 🔒 Plan Required\n\nChannel Analysis is a premium feature. Please upgrade your plan to access this feature.");
+      setActiveTool('pricing');
+      return;
+    }
     if (!inputText.trim()) return;
     setLoading(true);
     setResult(null);
@@ -550,6 +680,13 @@ export default function App() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const isPaidTool = tools.some(t => t.id === activeTool);
+    if (isPaidTool && userPlan === 'none') {
+      setResult("### 🔒 Plan Required\n\nThis tool requires a premium plan. Please upgrade to continue.");
+      setActiveTool('pricing');
+      return;
+    }
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -793,7 +930,8 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-brand-dark overflow-hidden">
+    <ErrorBoundary>
+      <div className="flex h-screen bg-brand-dark overflow-hidden">
       {/* Sidebar */}
       <aside className="w-72 border-r border-white/10 flex flex-col bg-black/20 backdrop-blur-xl">
         <div className="p-8 flex items-center gap-3">
@@ -973,16 +1111,18 @@ export default function App() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-bold text-white">{userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan</h3>
-                        <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
-                          {currency === 'INR' ? (
-                            userPlan === 'starter' ? '₹199/mo' : userPlan === 'creator' ? '₹999/mo' : '₹1,999/mo'
-                          ) : (
-                            userPlan === 'starter' ? '$3/mo' : userPlan === 'creator' ? '$15/mo' : '$29/mo'
-                          )}
-                        </span>
+                        <h3 className="text-lg font-bold text-white">{userPlan === 'none' ? 'No Active' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan</h3>
+                        {userPlan !== 'none' && (
+                          <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
+                            {currency === 'INR' ? (
+                              userPlan === 'starter' ? '₹199/mo' : userPlan === 'creator' ? '₹999/mo' : '₹1,999/mo'
+                            ) : (
+                              userPlan === 'starter' ? '$3/mo' : userPlan === 'creator' ? '$15/mo' : '$29/mo'
+                            )}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-sm text-white/40">Credits and features active</p>
+                      <p className="text-sm text-white/40">{userPlan === 'none' ? 'Upgrade to unlock AI features' : 'Credits and features active'}</p>
                     </div>
                   </div>
 
@@ -1188,27 +1328,27 @@ export default function App() {
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Credits Usage</p>
-                            <span className="text-[10px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded uppercase">{userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan</span>
+                            <span className="text-[10px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded uppercase">{userPlan === 'none' ? 'No Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}</span>
                           </div>
-                          <p className="text-sm font-medium">450 / {userPlan === 'starter' ? '100' : userPlan === 'creator' ? '500' : '2000'} Credits</p>
+                          <p className="text-sm font-medium">{userPlan === 'none' ? '0' : '450'} / {userPlan === 'starter' ? '100' : userPlan === 'creator' ? '500' : userPlan === 'pro' ? '2000' : '0'} Credits</p>
                         </div>
                       </div>
                       <div className="space-y-1.5">
                         <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                           <motion.div 
                             initial={{ width: 0 }}
-                            animate={{ width: userPlan === 'starter' ? '100%' : userPlan === 'creator' ? '90%' : '22.5%' }}
+                            animate={{ width: userPlan === 'none' ? '0%' : userPlan === 'starter' ? '100%' : userPlan === 'creator' ? '90%' : '22.5%' }}
                             transition={{ duration: 1, ease: "easeOut" }}
                             className="h-full bg-brand-primary rounded-full"
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <p className="text-[10px] text-white/20 uppercase tracking-widest font-bold">Resets 4/23/2026</p>
+                          <p className="text-[10px] text-white/20 uppercase tracking-widest font-bold">{userPlan === 'none' ? 'No active subscription' : 'Resets 4/23/2026'}</p>
                           <button 
                             onClick={() => setActiveTool('pricing')}
                             className="text-[10px] font-bold text-brand-primary hover:underline uppercase tracking-widest"
                           >
-                            Upgrade Plan
+                            {userPlan === 'none' ? 'Get a Plan' : 'Upgrade Plan'}
                           </button>
                         </div>
                       </div>
@@ -1219,11 +1359,13 @@ export default function App() {
                       </div>
                       <div>
                         <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Next Billing Date</p>
-                        <p className="text-sm font-medium">April 24, 2026</p>
+                        <p className="text-sm font-medium">{userPlan === 'none' ? 'N/A' : 'April 24, 2026'}</p>
                       </div>
-                      <button className="ml-auto text-[10px] font-bold text-brand-primary hover:underline flex items-center gap-1">
-                        Invoices <ExternalLink className="w-2 h-2" />
-                      </button>
+                      {userPlan !== 'none' && (
+                        <button className="ml-auto text-[10px] font-bold text-brand-primary hover:underline flex items-center gap-1">
+                          Invoices <ExternalLink className="w-2 h-2" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1474,8 +1616,13 @@ export default function App() {
                               </div>
                               <div className="p-4 bg-brand-primary/5 border border-brand-primary/20 rounded-xl text-center">
                                 <p className="text-xs text-white/60">Scan QR or enter UPI ID to pay</p>
-                                <div className="mt-4 w-32 h-32 bg-white mx-auto rounded-lg p-2">
-                                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=yomai@upi&pn=YOMAI&am=${selectedPlanForPayment?.price.replace('₹', '')}&cu=INR`} alt="UPI QR" className="w-full h-full" />
+                                <div className="mt-4 w-48 h-48 bg-white mx-auto rounded-lg p-2 flex items-center justify-center overflow-hidden">
+                                  <img 
+                                    src={PAYMENT_QR_CODE} 
+                                    alt="UPI QR" 
+                                    className="w-full h-full object-contain" 
+                                    referrerPolicy="no-referrer"
+                                  />
                                 </div>
                               </div>
                             </div>
@@ -2324,6 +2471,7 @@ export default function App() {
         </div>
       </main>
     </div>
+    </ErrorBoundary>
   );
 }
 
