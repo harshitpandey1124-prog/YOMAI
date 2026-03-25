@@ -27,7 +27,9 @@ import {
   Copy,
   Youtube,
   LogIn,
-  LogOut
+  LogOut,
+  Smartphone,
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -112,7 +114,10 @@ export default function App() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [userPlan, setUserPlan] = useState<string>('starter');
+  const [currency, setCurrency] = useState<'USD' | 'INR'>('INR');
   const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<{name: string, price: string} | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi'>('card');
+  const [upiId, setUpiId] = useState('');
   const [isPaying, setIsPaying] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -970,7 +975,11 @@ export default function App() {
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-lg font-bold text-white">{userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan</h3>
                         <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
-                          {userPlan === 'starter' ? '$0/mo' : userPlan === 'creator' ? '$15/mo' : '$29/mo'}
+                          {currency === 'INR' ? (
+                            userPlan === 'starter' ? '₹199/mo' : userPlan === 'creator' ? '₹999/mo' : '₹1,999/mo'
+                          ) : (
+                            userPlan === 'starter' ? '$3/mo' : userPlan === 'creator' ? '$15/mo' : '$29/mo'
+                          )}
                         </span>
                       </div>
                       <p className="text-sm text-white/40">Credits and features active</p>
@@ -1239,27 +1248,53 @@ export default function App() {
             </div>
           ) : activeTool === 'pricing' ? (
             <div className="space-y-8">
-              <header>
-                <h2 className="text-5xl font-bold tracking-tight mb-4">Plans & Pricing</h2>
-                <p className="text-white/60 text-lg">Upgrade your plan to unlock advanced AI features and higher limits. <span className="text-brand-primary font-bold">(Tools cost credits per generation)</span></p>
+              <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div>
+                  <h2 className="text-5xl font-bold tracking-tight mb-4">Plans & Pricing</h2>
+                  <p className="text-white/60 text-lg">Upgrade your plan to unlock advanced AI features and higher limits. <span className="text-brand-primary font-bold">(Tools cost credits per generation)</span></p>
+                </div>
+                
+                {/* Currency Toggle */}
+                <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-xl w-fit">
+                  <button 
+                    onClick={() => setCurrency('INR')}
+                    className={cn(
+                      "px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+                      currency === 'INR' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
+                    )}
+                  >
+                    INR (₹)
+                  </button>
+                  <button 
+                    onClick={() => setCurrency('USD')}
+                    className={cn(
+                      "px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+                      currency === 'USD' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
+                    )}
+                  >
+                    USD ($)
+                  </button>
+                </div>
               </header>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="glass-panel p-8 border-white/10">
                   <h3 className="text-xl font-bold mb-2">Starter</h3>
-                  <p className="text-3xl font-bold mb-6">$0<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹199' : '$3'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 100 Monthly Credits</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Voice Quality</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Basic Analytics</li>
                   </ul>
                   <button 
+                    onClick={() => handleUpgrade('Starter', currency === 'INR' ? '₹199' : '$3')}
                     disabled={userPlan === 'starter'}
                     className={cn(
                       "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
                       userPlan === 'starter' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
                     )}
                   >
-                    {userPlan === 'starter' ? 'Current Plan' : 'Select Plan'}
+                    {userPlan === 'starter' ? 'Current Plan' : 'Upgrade Now'}
                   </button>
                 </div>
                 <div className="glass-panel p-8 border-brand-primary/50 bg-brand-primary/5">
@@ -1267,7 +1302,7 @@ export default function App() {
                     <h3 className="text-xl font-bold">Creator</h3>
                     <span className="bg-brand-primary text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">Popular</span>
                   </div>
-                  <p className="text-3xl font-bold mb-6">$15<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹999' : '$15'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 500 Monthly Credits</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> High-Quality Voice Synthesis</li>
@@ -1275,7 +1310,7 @@ export default function App() {
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Support</li>
                   </ul>
                   <button 
-                    onClick={() => handleUpgrade('Creator', '$15')}
+                    onClick={() => handleUpgrade('Creator', currency === 'INR' ? '₹999' : '$15')}
                     disabled={userPlan === 'creator'}
                     className={cn(
                       "w-full py-3 rounded-xl font-bold transition-all",
@@ -1287,7 +1322,7 @@ export default function App() {
                 </div>
                 <div className="glass-panel p-8 border-white/10">
                   <h3 className="text-xl font-bold mb-2">Pro</h3>
-                  <p className="text-3xl font-bold mb-6">$29<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹1,999' : '$29'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 2000 Monthly Credits</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Ultra-Realistic Voice Cloning</li>
@@ -1295,7 +1330,7 @@ export default function App() {
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Priority AI Processing</li>
                   </ul>
                   <button 
-                    onClick={() => handleUpgrade('Pro', '$29')}
+                    onClick={() => handleUpgrade('Pro', currency === 'INR' ? '₹1,999' : '$29')}
                     disabled={userPlan === 'pro'}
                     className={cn(
                       "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
@@ -1360,12 +1395,40 @@ export default function App() {
                       <div className="space-y-6">
                         <div className="space-y-4">
                           <label className="text-xs font-bold uppercase tracking-widest text-white/40">Payment Method</label>
-                          <div className="p-4 bg-brand-primary/5 border border-brand-primary/50 rounded-xl flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <CreditCard className="w-5 h-5 text-brand-primary" />
-                              <span className="text-sm font-medium">Credit / Debit Card</span>
-                            </div>
-                            <div className="w-4 h-4 rounded-full border-4 border-brand-primary bg-brand-primary" />
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <button 
+                              onClick={() => setPaymentMethod('card')}
+                              className={cn(
+                                "p-4 bg-white/5 border rounded-xl flex items-center justify-between transition-all",
+                                paymentMethod === 'card' ? "border-brand-primary/50 bg-brand-primary/5" : "border-white/10 hover:border-white/20"
+                              )}
+                            >
+                              <div className="flex items-center gap-3">
+                                <CreditCard className={cn("w-5 h-5", paymentMethod === 'card' ? "text-brand-primary" : "text-white/40")} />
+                                <span className="text-sm font-medium">Credit / Debit Card</span>
+                              </div>
+                              <div className={cn(
+                                "w-4 h-4 rounded-full border-2",
+                                paymentMethod === 'card' ? "border-brand-primary bg-brand-primary" : "border-white/20"
+                              )} />
+                            </button>
+
+                            <button 
+                              onClick={() => setPaymentMethod('upi')}
+                              className={cn(
+                                "p-4 bg-white/5 border rounded-xl flex items-center justify-between transition-all",
+                                paymentMethod === 'upi' ? "border-brand-primary/50 bg-brand-primary/5" : "border-white/10 hover:border-white/20"
+                              )}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Smartphone className={cn("w-5 h-5", paymentMethod === 'upi' ? "text-brand-primary" : "text-white/40")} />
+                                <span className="text-sm font-medium">UPI Payment</span>
+                              </div>
+                              <div className={cn(
+                                "w-4 h-4 rounded-full border-2",
+                                paymentMethod === 'upi' ? "border-brand-primary bg-brand-primary" : "border-white/20"
+                              )} />
+                            </button>
                           </div>
                         </div>
 
@@ -1376,22 +1439,47 @@ export default function App() {
                               {paymentError}
                             </div>
                           )}
-                          <div className="grid grid-cols-1 gap-4">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Card Number</label>
-                              <input type="text" placeholder="**** **** **** 4242" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
+                          
+                          {paymentMethod === 'card' ? (
+                            <div className="grid grid-cols-1 gap-4">
                               <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Expiry Date</label>
-                                <input type="text" placeholder="MM/YY" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Card Number</label>
+                                <input type="text" placeholder="**** **** **** 4242" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
                               </div>
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">CVC</label>
-                                <input type="text" placeholder="***" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Expiry Date</label>
+                                  <input type="text" placeholder="MM/YY" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">CVC</label>
+                                  <input type="text" placeholder="***" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
+                                </div>
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">UPI ID</label>
+                                <div className="relative">
+                                  <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                                  <input 
+                                    type="text" 
+                                    value={upiId}
+                                    onChange={(e) => setUpiId(e.target.value)}
+                                    placeholder="username@upi" 
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-white/20 focus:outline-none focus:border-brand-primary/50 transition-colors" 
+                                  />
+                                </div>
+                              </div>
+                              <div className="p-4 bg-brand-primary/5 border border-brand-primary/20 rounded-xl text-center">
+                                <p className="text-xs text-white/60">Scan QR or enter UPI ID to pay</p>
+                                <div className="mt-4 w-32 h-32 bg-white mx-auto rounded-lg p-2">
+                                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=yomai@upi&pn=YOMAI&am=${selectedPlanForPayment?.price.replace('₹', '')}&cu=INR`} alt="UPI QR" className="w-full h-full" />
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="pt-4">
