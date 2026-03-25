@@ -349,6 +349,8 @@ export default function App() {
         error.code === 'auth/invalid-email'
       ) {
         setAuthError("Email or password is incorrect");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setAuthError("Email/Password authentication is not enabled in the Firebase Console. Please enable it in the 'Sign-in method' tab.");
       } else {
         setAuthError(error.message);
       }

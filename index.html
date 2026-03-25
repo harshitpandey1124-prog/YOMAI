@@ -9,6 +9,32 @@
   </head>
   <body>
     <div id="root"></div>
+    <script type="module">
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-analytics.js";
+      import { getAuth } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
+      import { getFirestore } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+
+      // Your web app's Firebase configuration
+      const firebaseConfig = {
+        apiKey: "AIzaSyAMs0MaziuxSFi9J10L6Zx9udPtTNhBqj8",
+        authDomain: "yomai-c53ed.firebaseapp.com",
+        projectId: "yomai-c53ed",
+        storageBucket: "yomai-c53ed.firebasestorage.app",
+        messagingSenderId: "851954980738",
+        appId: "1:851954980738:web:cdcdce9e829597da3d619b",
+        measurementId: "G-5WNEPEH7H2"
+      };
+
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+
+      console.log("Firebase initialized in index.html");
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
