@@ -36,8 +36,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "harshitpandey1124@gmail.com" && request.auth.token.email_verified == true));
+        ((request.auth.token.email == "harshitpandey1124@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isValidEmail(email) {
@@ -59,7 +60,7 @@ service cloud.firestore {
              hasOnlyAllowedFields(['uid', 'email', 'displayName', 'plan', 'createdAt', 'role']) &&
              data.uid == request.auth.uid &&
              isValidEmail(data.email) &&
-             data.plan in ['none', 'starter', 'pro', 'enterprise'] &&
+             data.plan in ['none', 'starter', 'creator', 'pro', 'enterprise'] &&
              data.createdAt is timestamp;
     }
 
@@ -85,7 +86,7 @@ service cloud.firestore {
 
     // History items
     match /history/{historyId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isValidHistory(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow update: if false; // History should be immutable

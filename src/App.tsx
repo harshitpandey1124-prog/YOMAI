@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import emailjs from '@emailjs/browser';
 import { 
   Mic, 
   Video, 
@@ -30,7 +31,9 @@ import {
   LogOut,
   Smartphone,
   Globe,
-  AlertCircle
+  AlertCircle,
+  Shield,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -219,10 +222,11 @@ export default function App() {
   const [currency, setCurrency] = useState<'USD' | 'INR'>('INR');
   const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<{name: string, price: string} | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi'>('upi');
-  const [upiId, setUpiId] = useState('');
+  const [upiId, setUpiId] = useState('harshit1124@fam');
   const [isPaying, setIsPaying] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -251,7 +255,14 @@ export default function App() {
             });
             setUserPlan('none');
           } else {
-            setUserPlan(userDoc.data().plan || 'none');
+            const currentPlan = userDoc.data().plan || 'none';
+            setUserPlan(currentPlan);
+            
+            // One-time update for specific user to 'creator' plan as requested
+            if (user.email === 'harshitpandey1124@gmail.com' && currentPlan !== 'creator') {
+              console.log('Upgrading user harshitpandey1124@gmail.com to creator plan...');
+              await updateDoc(userDocRef, { plan: 'creator' });
+            }
           }
 
           // Listen for real-time updates to the user document (e.g. plan changes)
@@ -415,21 +426,35 @@ export default function App() {
         throw new Error("Your card was declined. Please check your details and try again.");
       }
 
-      // 2. ONLY after success, update Firestore
-      const userDocRef = doc(db, 'users', user.uid);
-      await updateDoc(userDocRef, {
-        plan: selectedPlanForPayment.name.toLowerCase()
-      });
-      
-      // 3. Add to history
-      await addDoc(collection(db, 'history'), {
-        userId: user.uid,
-        tool: 'Subscription',
-        type: 'Paid',
-        input: `Upgraded to ${selectedPlanForPayment.name} Plan`,
-        createdAt: serverTimestamp()
-      });
+      // 3. Send Email Notification to Owner via EmailJS
+      try {
+        const templateParams = {
+          to_name: 'Owner',
+          from_name: user.displayName || user.email,
+          user_email: user.email,
+          plan_name: selectedPlanForPayment.name,
+          amount: selectedPlanForPayment.price,
+          currency: currency,
+          payment_method: paymentMethod,
+          upi_id: paymentMethod === 'upi' ? upiId : 'N/A',
+          timestamp: new Date().toLocaleString()
+        };
 
+        const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+        const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+        const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+        if (serviceId && templateId && publicKey) {
+          await emailjs.send(serviceId, templateId, templateParams, publicKey);
+          console.log('Email notification sent to owner successfully');
+        } else {
+          console.warn('EmailJS credentials not configured. Skipping email notification.');
+        }
+      } catch (emailError) {
+        console.error('Failed to send email notification to owner:', emailError);
+        // We don't throw here to not break the successful payment flow
+      }
+      
       setPaymentSuccess(true);
       setTimeout(() => {
         setPaymentSuccess(false);
@@ -1371,6 +1396,35 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                
+                {/* Legal Category */}
+                <div className="glass-panel p-8">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center border border-white/5">
+                        <Shield className="w-6 h-6 text-brand-primary" />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-bold text-white">Legal</h4>
+                        <p className="text-xs text-white/40">Policies and terms</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold transition-all">
+                        Terms
+                      </button>
+                      <button 
+                        onClick={() => setShowPrivacyPolicy(true)}
+                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold transition-all"
+                      >
+                        Privacy
+                      </button>
+                      <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold transition-all">
+                        Refund
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Preferences Category */}
                 <div className="glass-panel p-8 space-y-6">
@@ -1610,20 +1664,8 @@ export default function App() {
                                   <input 
                                     type="text" 
                                     value={upiId}
-                                    onChange={(e) => setUpiId(e.target.value)}
-                                    placeholder="username@upi" 
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-white/20 focus:outline-none focus:border-brand-primary/50 transition-colors" 
-                                  />
-                                </div>
-                              </div>
-                              <div className="p-4 bg-brand-primary/5 border border-brand-primary/20 rounded-xl text-center">
-                                <p className="text-xs text-white/60">Scan QR or enter UPI ID to pay</p>
-                                <div className="mt-4 w-48 h-48 bg-white mx-auto rounded-lg p-2 flex items-center justify-center overflow-hidden">
-                                  <img 
-                                    src={PAYMENT_QR_CODE} 
-                                    alt="UPI QR" 
-                                    className="w-full h-full object-contain" 
-                                    referrerPolicy="no-referrer"
+                                    readOnly
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white/40 cursor-not-allowed focus:outline-none transition-colors" 
                                   />
                                 </div>
                               </div>
@@ -1642,7 +1684,7 @@ export default function App() {
                             ) : (
                               <>
                                 <Zap className="w-5 h-5" />
-                                Confirm & Pay {selectedPlanForPayment?.price}
+                                Upgrade Plan {selectedPlanForPayment?.price}
                               </>
                             )}
                           </button>
@@ -2472,6 +2514,86 @@ export default function App() {
           )}
         </div>
       </main>
+
+      <AnimatePresence>
+        {showPrivacyPolicy && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPrivacyPolicy(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl max-h-[80vh] glass-panel overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-brand-primary/10 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-brand-primary" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Privacy Policy</h3>
+                    <p className="text-xs text-white/40 uppercase tracking-widest font-bold">Last updated: 2026</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowPrivacyPolicy(false)}
+                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 overflow-y-auto custom-scrollbar prose prose-invert prose-sm max-w-none">
+                <ReactMarkdown>
+{`Welcome to our website. We respect your privacy and are committed to protecting your personal information.
+
+### Information we collect
+We may collect basic information such as email, name, login data, and usage history when you use our tools, create an account, or make a payment.
+
+### How we use information
+We use your information to provide services, improve our tools, manage user accounts, and process payments. We do not sell your personal information.
+
+### Cookies
+Our website may use cookies to store login sessions, preferences, and analytics data.
+
+### Google AdSense
+We use Google AdSense to show ads. Google may use cookies to show personalized ads based on your visits to this and other websites.
+
+### Third-party services
+We may use third-party services such as Firebase, payment providers, and analytics tools to run our website.
+
+### Payments
+Payments made on our website are processed using secure payment methods. We do not store card or UPI details on our server.
+
+### User accounts
+Users are responsible for keeping their login details safe.
+
+### Changes
+We may update this privacy policy at any time without notice.
+
+### Contact
+If you have any questions, contact us at:
+
+[harshitpandey1124@gmail.com](mailto:harshitpandey1124@gmail.com)`}
+                </ReactMarkdown>
+              </div>
+              <div className="p-6 border-t border-white/5 bg-white/5 flex justify-end">
+                <button 
+                  onClick={() => setShowPrivacyPolicy(false)}
+                  className="px-6 py-2 bg-brand-primary text-white font-bold rounded-xl hover:bg-brand-primary/90 transition-all"
+                >
+                  Got it
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
     </ErrorBoundary>
   );
