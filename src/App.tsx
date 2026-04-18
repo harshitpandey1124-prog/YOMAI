@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import emailjs from '@emailjs/browser';
+
+// Initialize EmailJS
+emailjs.init("nOouP8nClP1a6uAa1");
 import { 
   Mic, 
   Video, 
@@ -21,7 +24,6 @@ import {
   User as UserIcon,
   Calendar,
   ExternalLink,
-  Coins,
   Square,
   Zap,
   Tag,
@@ -30,16 +32,15 @@ import {
   LogIn,
   LogOut,
   Smartphone,
-  Globe,
   AlertCircle,
   Shield,
+  Lock,
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { generateVoice, analyzeImage, analyzeText, transcribeAudio, generateSubtitles } from './services/gemini';
 import ReactMarkdown from 'react-markdown';
-import { PAYMENT_QR_CODE } from './constants';
 import { 
   auth, 
   googleProvider, 
@@ -55,27 +56,16 @@ import {
   getDoc,
   setDoc,
   onSnapshot,
-  collection,
+  serverTimestamp,
   addDoc,
+  collection,
   query,
   where,
   orderBy,
-  limit,
-  serverTimestamp,
-  deleteDoc,
-  getDocs,
-  updateDoc
+  limit
 } from './firebase';
 
-type Tool = 'dashboard' | 'voice-gen' | 'voice-clone' | 'subtitles' | 'video-enhancer' | 'channel-analyzer' | 'thumbnail-analyzer' | 'history' | 'settings' | 'pricing' | 'title-gen' | 'tag-gen' | 'desc-gen' | 'audio-to-text' | 'payment';
-
-interface HistoryItem {
-  id: string;
-  tool: string;
-  type: 'Free' | 'Paid';
-  time: string;
-  input: string;
-}
+type Tool = 'dashboard' | 'voice-gen' | 'voice-clone' | 'subtitles' | 'video-enhancer' | 'channel-analyzer' | 'thumbnail-analyzer' | 'settings' | 'pricing' | 'title-gen' | 'tag-gen' | 'desc-gen' | 'audio-to-text' | 'history';
 
 enum OperationType {
   CREATE = 'create',
@@ -150,7 +140,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
         if (parsedError.error) {
           errorMessage = `Firestore Error: ${parsedError.error} during ${parsedError.operationType} on ${parsedError.path}`;
         }
-      } catch (e) {
+      } catch {
         errorMessage = this.state.error?.message || errorMessage;
       }
 
@@ -177,6 +167,14 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
+interface HistoryItem {
+  id: string;
+  tool: string;
+  type: string;
+  input: string;
+  createdAt: { toDate: () => Date } | null;
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -188,7 +186,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<Tool>('dashboard');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [subtitleData, setSubtitleData] = useState<string | null>(null);
@@ -219,107 +217,127 @@ export default function App() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [userPlan, setUserPlan] = useState<string>('none');
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [userPlanLoading, setUserPlanLoading] = useState(true);
   const [currency, setCurrency] = useState<'USD' | 'INR'>('INR');
-  const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<{name: string, price: string} | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi'>('upi');
-  const [upiId, setUpiId] = useState('harshit1124@fam');
-  const [isPaying, setIsPaying] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [showUPIDialog, setShowUPIDialog] = useState(false);
+  const [showProcessing, setShowProcessing] = useState(false);
+  const [processingSuccess, setProcessingSuccess] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<{name: string, price: string} | null>(null);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | null = null;
     let unsubscribeHistory: (() => void) | null = null;
 
+    // 🛡️ Safety timeout: Ensure loading screen eventually clears
+    const safetyTimer = setTimeout(() => {
+      setAuthLoading(false);
+      setUserPlanLoading(false);
+    }, 10000); // 10s maximum load time
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      // Clean up previous snapshot listener if it exists
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = null;
+      }
+
       if (user) {
         setUser(user);
         setDisplayName(user.displayName || user.email?.split('@')[0] || 'User');
         setEmail(user.email || '');
 
-        // Check if user exists in Firestore, if not create with 'none' plan
+        // Clean up previous history listener
+        if (unsubscribeHistory) {
+          unsubscribeHistory();
+          unsubscribeHistory = null;
+        }
+
         const userDocRef = doc(db, 'users', user.uid);
         
         try {
-          const userDoc = await getDoc(userDocRef);
-          if (!userDoc.exists()) {
-            await setDoc(userDocRef, {
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName || user.email?.split('@')[0] || 'User',
-              plan: 'none',
-              createdAt: serverTimestamp()
-            });
-            setUserPlan('none');
-          } else {
-            const currentPlan = userDoc.data().plan || 'none';
-            setUserPlan(currentPlan);
-            
-            // One-time update for specific user to 'creator' plan as requested
-            if (user.email === 'harshitpandey1124@gmail.com' && currentPlan !== 'creator') {
-              console.log('Upgrading user harshitpandey1124@gmail.com to creator plan...');
-              await updateDoc(userDocRef, { plan: 'creator' });
+          // 🚀 Initial auth state found, we can show the app frame
+          setAuthLoading(false);
+
+          // 1. Initial existence check and creation
+          const userDocPromise = getDoc(userDocRef);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+          
+          try {
+            const userDoc = await Promise.race([userDocPromise, timeoutPromise]) as { exists: () => boolean, data: () => Record<string, unknown> };
+            if (!userDoc.exists()) {
+              await setDoc(userDocRef, {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email?.split('@')[0] || 'User',
+                plan: 'none',
+                createdAt: serverTimestamp()
+              });
+              setUserPlan('none');
+            } else {
+              setUserPlan((userDoc.data().plan as string) || 'none');
             }
+          } catch {
+            console.warn("User plan fetch timed out, using default.");
+            setUserPlan('none');
+          } finally {
+            setUserPlanLoading(false);
+            clearTimeout(safetyTimer);
           }
 
-          // Listen for real-time updates to the user document (e.g. plan changes)
-          unsubscribeSnapshot = onSnapshot(userDocRef, (doc) => {
-            if (doc.exists()) {
-              setUserPlan(doc.data().plan || 'none');
+          // 2. Set up real-time listener for ALL future changes
+          unsubscribeSnapshot = onSnapshot(userDocRef, (snapshot) => {
+            if (snapshot.exists()) {
+              const updatedPlan = (snapshot.data().plan as string) || 'none';
+              setUserPlan(updatedPlan);
+              setUserPlanLoading(false);
             }
           }, (error) => {
+            console.error("Firestore sync error:", error);
             handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
           });
 
-          // Fetch user history from Firestore
+          // 3. Set up History listener
           const historyQuery = query(
             collection(db, 'history'),
             where('userId', '==', user.uid),
             orderBy('createdAt', 'desc'),
             limit(50)
           );
-
+          
           unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
-            const historyItems: HistoryItem[] = snapshot.docs.map(doc => ({
+            const items = snapshot.docs.map(doc => ({
               id: doc.id,
-              tool: doc.data().tool,
-              type: doc.data().type,
-              time: doc.data().createdAt?.toDate()?.toLocaleString() || new Date().toLocaleString(),
-              input: doc.data().input
-            }));
-            setHistory(historyItems);
+              ...doc.data()
+            })) as HistoryItem[];
+            setHistoryItems(items);
           }, (error) => {
-            handleFirestoreError(error, OperationType.LIST, 'history');
+            console.error("History sync error:", error);
           });
 
-        } catch (error) {
-          console.error("Error fetching user data:", error);
+        } catch (error: unknown) {
+          console.error("Error establishing user data sync:", error);
+          setAuthLoading(false);
+          setUserPlanLoading(false);
         }
       } else {
         setUser(null);
         setDisplayName('');
         setEmail('');
         setUserPlan('none');
-        setHistory([]);
-        if (unsubscribeSnapshot) {
-          unsubscribeSnapshot();
-          unsubscribeSnapshot = null;
-        }
-        if (unsubscribeHistory) {
-          unsubscribeHistory();
-          unsubscribeHistory = null;
-        }
+        setAuthLoading(false);
+        setUserPlanLoading(false);
+        clearTimeout(safetyTimer);
       }
-      setAuthLoading(false);
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
       if (unsubscribeHistory) unsubscribeHistory();
+      clearTimeout(safetyTimer);
     };
   }, []);
 
@@ -327,9 +345,10 @@ export default function App() {
     setAuthError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      console.error("Login failed", error);
-      setAuthError(error.message);
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      console.error("Login failed", err);
+      setAuthError(err.message || "Login failed");
     }
   };
 
@@ -349,21 +368,22 @@ export default function App() {
           setVerificationEmail(userCredential.user.email || '');
         }
       }
-    } catch (error: any) {
-      console.error("Email auth failed", error);
-      if (error.code === 'auth/email-already-in-use') {
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      console.error("Email auth failed", err);
+      if (err.code === 'auth/email-already-in-use') {
         setAuthError("User already exists. Please sign in");
       } else if (
-        error.code === 'auth/invalid-credential' || 
-        error.code === 'auth/user-not-found' || 
-        error.code === 'auth/wrong-password' ||
-        error.code === 'auth/invalid-email'
+        err.code === 'auth/invalid-credential' || 
+        err.code === 'auth/user-not-found' || 
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-email'
       ) {
         setAuthError("Email or password is incorrect");
-      } else if (error.code === 'auth/operation-not-allowed') {
+      } else if (err.code === 'auth/operation-not-allowed') {
         setAuthError("Email/Password authentication is not enabled in the Firebase Console. Please enable it in the 'Sign-in method' tab.");
       } else {
-        setAuthError(error.message);
+        setAuthError(err.message || "Authentication failed");
       }
     }
   };
@@ -377,130 +397,93 @@ export default function App() {
     }
   };
 
-  const handleClearHistory = async () => {
-    if (!user) return;
-    try {
-      const historyQuery = query(
-        collection(db, 'history'),
-        where('userId', '==', user.uid)
-      );
-      const snapshot = await getDocs(historyQuery);
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
-    } catch (error) {
-      console.error("Error clearing history:", error);
-    }
-  };
-
   const handleUpgrade = (planName: string, planPrice: string) => {
-    setSelectedPlanForPayment({ name: planName, price: planPrice });
-    setActiveTool('payment');
+    setSelectedPlan({ name: planName, price: planPrice });
+    setShowUPIDialog(true);
   };
 
-  const processPayment = async () => {
-    if (!user || !selectedPlanForPayment) return;
-    
-    // Validate UPI ID if UPI is selected
-    if (paymentMethod === 'upi' && !upiId.trim()) {
-      setPaymentError("Please enter your UPI ID to proceed.");
+  // const selectPlan = async (plan: string) => { ... }
+
+  const upgradePlan = async (plan: string) => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      alert("Login first");
       return;
     }
 
-    setIsPaying(true);
-    setPaymentError(null);
-    
+    setLoading(true);
+    setShowProcessing(true);
+
+    // 🛡️ Safety timeout for processing screen (30 seconds)
+    const safetyTimeout = setTimeout(() => {
+      setShowProcessing(false);
+      setLoading(false);
+    }, 30000);
+
     try {
-      // 1. Simulate Payment Gateway Call (e.g., Stripe or UPI Verification)
-      // This is the "Payment" success check
-      const paymentResponse = await new Promise((resolve) => {
-        setTimeout(() => {
-          // Simulate 95% success rate for demo purposes
-          const isSuccessful = Math.random() > 0.05;
-          resolve({ success: isSuccessful });
-        }, 2000);
-      });
-
-      const result = paymentResponse as { success: boolean };
-
-      if (!result.success) {
-        throw new Error("Your card was declined. Please check your details and try again.");
-      }
-
-      // 3. Send Email Notification to Owner via EmailJS
-      try {
-        const templateParams = {
-          to_name: 'Owner',
-          from_name: user.displayName || user.email,
-          user_email: user.email,
-          plan_name: selectedPlanForPayment.name,
-          amount: selectedPlanForPayment.price,
-          currency: currency,
-          payment_method: paymentMethod,
-          upi_id: paymentMethod === 'upi' ? upiId : 'N/A',
-          timestamp: new Date().toLocaleString()
-        };
-
-        const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-        const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
-        const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-
-        if (serviceId && templateId && publicKey) {
-          await emailjs.send(serviceId, templateId, templateParams, publicKey);
-          console.log('Email notification sent to owner successfully');
-        } else {
-          console.warn('EmailJS credentials not configured. Skipping email notification.');
+      // 🔹 Save in Firebase
+      await setDoc(
+        doc(db, "upgrades", user.uid),
+        {
+          userId: user.uid,
+          email: user.email,
+          plan: plan,
+          status: "pending",
+          upgradedAt: serverTimestamp()
         }
-      } catch (emailError) {
-        console.error('Failed to send email notification to owner:', emailError);
-        // We don't throw here to not break the successful payment flow
-      }
+      );
+
+      // 🔹 Send email automatically
+      const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || "YOUR_SERVICE_ID";
+      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || "YOUR_TEMPLATE_ID";
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || "nOouP8nClP1a6uAa1";
+
+      await emailjs.send(
+        serviceId,
+        templateId,
+        {
+          user_email: user.email,
+          plan: plan,
+          time: new Date().toLocaleString()
+        },
+        publicKey
+      );
+
+      // ✨ Realistic processing delay (3.5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 3500));
+
+      clearTimeout(safetyTimeout);
+      setProcessingSuccess(true);
       
-      setPaymentSuccess(true);
-      setTimeout(() => {
-        setPaymentSuccess(false);
-        setActiveTool('dashboard');
-        setSelectedPlanForPayment(null);
-      }, 3000);
-    } catch (error: any) {
-      console.error("Payment failed", error);
-      setPaymentError(error.message || "An unexpected error occurred during payment.");
+      // Wait a moment to show success state
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      setShowProcessing(false);
+      setProcessingSuccess(false);
+      setLoading(false);
+      setActiveTool('dashboard');
+    } catch (error) {
+      console.error("Upgrade request failed:", error);
+      clearTimeout(safetyTimeout);
+      setShowProcessing(false);
+      setProcessingSuccess(false);
+      setLoading(false);
+      alert("Failed to send upgrade request. Please try again.");
     } finally {
-      setIsPaying(false);
+      clearTimeout(safetyTimeout);
+      setLoading(false);
+      // Wait a bit before clearing success so animation finishes
+      setTimeout(() => {
+        setProcessingSuccess(false);
+        setShowProcessing(false);
+      }, 500);
     }
   };
 
   useEffect(() => {
-    localStorage.setItem('yomai_history', JSON.stringify(history));
-  }, [history]);
-
-  const addToHistory = async (toolId: string, input: string) => {
-    const tool = [...tools, ...freeTools, ...accountTools].find(t => t.id === toolId);
-    const isFree = freeTools.some(t => t.id === toolId);
-    
-    if (user) {
-      try {
-        await addDoc(collection(db, 'history'), {
-          userId: user.uid,
-          tool: tool?.name || toolId,
-          type: isFree ? 'Free' : 'Paid',
-          input: input.length > 50 ? input.substring(0, 50) + '...' : input,
-          createdAt: serverTimestamp()
-        });
-      } catch (error) {
-        console.error("Error adding to history:", error);
-      }
-    } else {
-      // Fallback for non-logged in users (if any)
-      const newItem: HistoryItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        tool: tool?.name || toolId,
-        type: isFree ? 'Free' : 'Paid',
-        time: new Date().toLocaleString(),
-        input: input.length > 50 ? input.substring(0, 50) + '...' : input
-      };
-      setHistory(prev => [newItem, ...prev].slice(0, 50));
-    }
-  };
+    // History sync removed
+  }, []);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -541,7 +524,7 @@ export default function App() {
 
   const tools = [
     { id: 'voice-gen', name: 'Voice Generate', icon: Volume2, desc: 'Browser Text to Speech' },
-    { id: 'voice-clone', name: 'Voice Clone', icon: Mic, desc: 'Custom Voice Profiles', status: 'Not Awailable' },
+    { id: 'voice-clone', name: 'Voice Clone', icon: Mic, desc: 'Custom Voice Profiles', status: 'Not Available' },
     { id: 'subtitles', name: 'Auto Subtitles AI', icon: Type, desc: 'AI Speech to Text & SRT Export' },
     { id: 'video-enhancer', name: 'Video Enhancer AI', icon: Video, desc: 'AI Upscaling & Quality Boost' },
     { id: 'channel-analyzer', name: 'Channel Analyzer', icon: BarChart3, desc: 'Growth Insights' },
@@ -556,16 +539,34 @@ export default function App() {
   ];
 
   const accountTools = [
-    { id: 'history', name: 'History', icon: History, desc: 'Recent Generations' },
+    { id: 'history', name: 'History', icon: History, desc: 'Usage Logs' },
     { id: 'settings', name: 'Settings', icon: Settings, desc: 'Account Preferences' },
     { id: 'pricing', name: 'Plans & Pricing', icon: CreditCard, desc: 'Manage Subscription' },
   ];
 
+  const saveToHistory = async (tool: string, type: 'Free' | 'Paid', input: string) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(db, 'history'), {
+        userId: user.uid,
+        tool,
+        type,
+        input: input.slice(0, 500),
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error saving history:", error);
+    }
+  };
+
   const handleAction = async () => {
     const isPaidTool = tools.some(t => t.id === activeTool);
-    if (isPaidTool && userPlan === 'none') {
-      setResult("### 🔒 Plan Required\n\nThis is a premium AI tool. Please upgrade your plan to access this feature.");
+    const hasAccess = userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro';
+
+    if (isPaidTool && !hasAccess) {
+      setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
       setActiveTool('pricing');
+      setLoading(false);
       return;
     }
 
@@ -573,23 +574,39 @@ export default function App() {
     setResult(null);
     setAudioUrl(null);
     try {
-      addToHistory(activeTool, inputText);
       switch (activeTool) {
-        case 'voice-clone':
+        case 'voice-clone': {
           // Simulated cloning using prebuilt voices with style prompts
           const clonedUrl = await generateVoice(inputText, 'guide');
           setAudioUrl(clonedUrl);
           setResult(`**Cloned Audio Profile:** Friendly Guide\n\n**Audio Script:**\n${inputText}`);
+          saveToHistory('Voice Clone', 'Paid', inputText);
           break;
-        case 'video-enhancer':
+        }
+        case 'video-enhancer': {
           const enhancement = await analyzeText(`Act as a YouTube expert. Enhance this video idea/script: ${inputText}`);
           setResult(enhancement);
+          saveToHistory('Video Enhancer', 'Paid', inputText);
           break;
-        case 'channel-analyzer':
+        }
+        case 'channel-analyzer': {
           const analysis = await analyzeText(`Analyze this YouTube channel data/niche: ${inputText}`);
           setResult(analysis);
+          saveToHistory('Channel Analyzer', 'Paid', inputText);
           break;
-        case 'title-gen':
+        }
+        case 'audio-to-text': {
+          const transcription = await analyzeText(`Act as a transcription expert. Transcribe or summarize this audio content request: ${inputText}`);
+          setResult(transcription);
+          saveToHistory('Audio to Text', 'Paid', inputText);
+          break;
+        }
+        case 'voice-gen': {
+          handleSpeak();
+          saveToHistory('Voice Generation', 'Paid', inputText);
+          break;
+        }
+        case 'title-gen': {
           const titles = await analyzeText(`Generate a structured list of YouTube titles for the topic: "${inputText}". 
           Provide 3 titles for each of the following categories:
           1. Viral (high engagement, curiosity gap)
@@ -599,8 +616,10 @@ export default function App() {
           
           Format the output as a clear markdown list with bold category headers.`);
           setResult(titles);
+          saveToHistory('Title Generator', 'Free', inputText);
           break;
-        case 'tag-gen':
+        }
+        case 'tag-gen': {
           const tags = await analyzeText(`Generate a list of YouTube tags for the topic: "${inputText}". 
           Provide 20 tags for each of the following categories:
           1. SEO Tags (high-ranking, keyword-rich)
@@ -609,8 +628,10 @@ export default function App() {
           
           Format the output as a JSON object with keys "seo", "trending", and "shorts", where each value is a comma-separated string of tags.`);
           setResult(tags);
+          saveToHistory('Tag Generator', 'Free', inputText);
           break;
-        case 'desc-gen':
+        }
+        case 'desc-gen': {
           const desc = await analyzeText(`Create a complete YouTube video optimization package for the title: "${inputText}". 
           Provide the following in a JSON object:
           1. "description": A long, comprehensive, and SEO-optimized video description (including hook, summary, timestamps, and CTA).
@@ -619,7 +640,9 @@ export default function App() {
           
           Format the output as a JSON object with keys "description", "hashtags", and "keywords".`);
           setResult(desc);
+          saveToHistory('Description Generator', 'Free', inputText);
           break;
+        }
         default:
           setResult("Please upload a file for this tool.");
       }
@@ -640,7 +663,6 @@ export default function App() {
     if (!videoFile) return;
     setIsEnhancing(true);
     setEnhancementProgress(0);
-    addToHistory('video-enhancer', 'Video Enhancement');
     
     // Simulate progress
     const interval = setInterval(() => {
@@ -677,7 +699,6 @@ export default function App() {
     setLoading(true);
     setResult(null);
     setChannelStats(null);
-    addToHistory('channel-analyzer', inputText);
     
     try {
       // Simulate API call to fetch channel data
@@ -726,7 +747,6 @@ export default function App() {
     setThumbnailPreview(null);
     setThumbnailScore(null);
     try {
-      addToHistory(activeTool, `Uploaded: ${file.name}`);
       const reader = new FileReader();
       reader.onload = async () => {
         const base64 = reader.result as string;
@@ -799,12 +819,25 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="h-screen bg-brand-dark flex items-center justify-center">
+      <div className="h-screen bg-black flex flex-col items-center justify-center p-6">
         <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full"
-        />
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="mb-8"
+        >
+          <div className="w-20 h-20 bg-brand-primary/10 rounded-2xl flex items-center justify-center">
+            <Youtube className="w-10 h-10 text-brand-primary" />
+          </div>
+        </motion.div>
+        
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold tracking-tight">YOMAI</h1>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce" />
+            <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce delay-100" />
+            <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce delay-200" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -997,9 +1030,13 @@ export default function App() {
               key={tool.id}
               onClick={() => {
                 setActiveTool(tool.id as Tool);
-                setResult(null);
-                setAudioUrl(null);
-                setInputText('');
+                if (!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro')) {
+                  setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
+                } else {
+                  setResult(null);
+                  setAudioUrl(null);
+                  setInputText('');
+                }
               }}
               className={cn(
                 "w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group",
@@ -1149,16 +1186,16 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-white/40">{userPlan === 'none' ? 'Upgrade to unlock AI features' : 'Credits and features active'}</p>
+                      <p className="text-sm text-white/40">{userPlan === 'none' ? 'Upgrade to unlock AI features' : 'Subscription active'}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-6 w-full md:w-auto">
-                    <div className="flex flex-col items-end gap-1.5">
+                    <div className="flex flex-col items-end gap-1.5 opacity-0">
                       <div className="w-48 h-1.5 bg-white/5 rounded-full overflow-hidden">
                         <div className="h-full bg-brand-primary/20 w-0" />
                       </div>
-                      <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Resets 4/23/2026</p>
+                      <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest opacity-0">Resets 4/23/2026</p>
                     </div>
                     <button 
                       onClick={() => setActiveTool('pricing')}
@@ -1180,12 +1217,22 @@ export default function App() {
                 {tools.map((tool) => (
                   <button
                     key={tool.id}
-                    onClick={() => setActiveTool(tool.id as Tool)}
+                    onClick={() => {
+                      setActiveTool(tool.id as Tool);
+                      if (!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro')) {
+                        setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
+                      }
+                    }}
                     className="glass-panel p-6 text-left hover:bg-white/10 transition-all group border-white/5 hover:border-brand-primary/30"
                   >
                     <div className="flex items-center justify-between mb-4">
-                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-brand-primary/20 group-hover:scale-110 transition-all">
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-brand-primary/20 group-hover:scale-110 transition-all relative">
                         <tool.icon className="w-6 h-6 text-white/40 group-hover:text-brand-primary" />
+                        {!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro') && (
+                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-black/60 border border-white/10 rounded-full flex items-center justify-center">
+                            <Shield className="w-2.5 h-2.5 text-brand-primary" />
+                          </div>
+                        )}
                       </div>
                       {tool.id === 'subtitles' && (
                         <span className="text-[8px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-1 rounded uppercase tracking-widest border border-brand-primary/20">
@@ -1230,63 +1277,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </div>
-          ) : activeTool === 'history' ? (
-            <div className="space-y-8">
-              <header className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-5xl font-bold tracking-tight mb-4">History</h2>
-                  <p className="text-white/60 text-lg">Your recent AI generations and analyses.</p>
-                </div>
-                {history.length > 0 && (
-                  <button 
-                    onClick={handleClearHistory}
-                    className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold uppercase tracking-widest text-white/40 hover:bg-white/10 hover:text-white transition-all"
-                  >
-                    Clear History
-                  </button>
-                )}
-              </header>
-              
-              {history.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4">
-                  {history.map((item) => (
-                    <motion.div 
-                      key={item.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="glass-panel p-6 flex items-center justify-between group hover:border-brand-primary/30 transition-all"
-                    >
-                      <div className="flex items-center gap-6">
-                        <div className="w-12 h-12 bg-brand-primary/10 rounded-xl flex items-center justify-center text-brand-primary group-hover:scale-110 transition-transform">
-                          <History className="w-6 h-6" />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-3">
-                            <h4 className="font-bold text-lg">{item.tool}</h4>
-                            <span className={cn(
-                              "text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border",
-                              item.type === 'Paid' ? "bg-brand-primary/10 text-brand-primary border-brand-primary/20" : "bg-white/5 text-white/40 border-white/10"
-                            )}>
-                              {item.type}
-                            </span>
-                          </div>
-                          <p className="text-sm text-white/40 line-clamp-1 max-w-md italic">"{item.input}"</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-bold text-white/20 uppercase tracking-widest">{item.time}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              ) : (
-                <div className="glass-panel p-24 text-center text-white/20">
-                  <History className="w-16 h-16 mx-auto mb-6 opacity-10" />
-                  <p className="text-xl font-medium">No recent activity found.</p>
-                  <p className="text-sm mt-2">Start using tools to see your history here.</p>
-                </div>
-              )}
             </div>
           ) : activeTool === 'settings' ? (
             <div className="space-y-8">
@@ -1344,7 +1334,7 @@ export default function App() {
                       <CreditCard className="w-4 h-4" />
                       <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Subscription & Billing</h4>
                     </div>
-                    <p className="text-xs text-white/40">Manage your plan, credits, and billing</p>
+                    <p className="text-xs text-white/40">Manage your plan and billing</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
@@ -1354,14 +1344,14 @@ export default function App() {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Credits Usage</p>
+                            <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Plan Status</p>
                             <span className="text-[10px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded uppercase">{userPlan === 'none' ? 'No Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}</span>
                           </div>
-                          <p className="text-sm font-medium">{userPlan === 'none' ? '0' : '450'} / {userPlan === 'starter' ? '100' : userPlan === 'creator' ? '500' : userPlan === 'pro' ? '2000' : '0'} Credits</p>
+                          <p className="text-sm font-medium">{userPlan === 'none' ? 'In-active' : 'Active'}</p>
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden opacity-0">
                           <motion.div 
                             initial={{ width: 0 }}
                             animate={{ width: userPlan === 'none' ? '0%' : userPlan === 'starter' ? '100%' : userPlan === 'creator' ? '90%' : '22.5%' }}
@@ -1370,12 +1360,12 @@ export default function App() {
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <p className="text-[10px] text-white/20 uppercase tracking-widest font-bold">{userPlan === 'none' ? 'No active subscription' : 'Resets 4/23/2026'}</p>
+                          <p className="text-[10px] text-white/20 uppercase tracking-widest font-bold opacity-0">{userPlan === 'none' ? 'No active subscription' : 'Resets 4/23/2026'}</p>
                           <button 
                             onClick={() => setActiveTool('pricing')}
                             className="text-[10px] font-bold text-brand-primary hover:underline uppercase tracking-widest"
                           >
-                            {userPlan === 'none' ? 'Get a Plan' : 'Upgrade Plan'}
+                            {userPlan === 'none' ? 'Get a Plan' : 'Current Plan'}
                           </button>
                         </div>
                       </div>
@@ -1444,12 +1434,55 @@ export default function App() {
                 </div>
               </div>
             </div>
+          ) : activeTool === 'history' ? (
+            <div className="space-y-8">
+              <header>
+                <h2 className="text-5xl font-bold tracking-tight mb-4">History</h2>
+                <p className="text-white/60 text-lg">Your recent activity and tool usage.</p>
+              </header>
+              <div className="glass-panel overflow-hidden border-white/5">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/5 bg-white/5">
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Tool</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Input</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Type</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40 text-right">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {historyItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-white/20 italic">
+                          No history found yet. Start using tools to see them here!
+                        </td>
+                      </tr>
+                    ) : (
+                      historyItems.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                          <td className="px-6 py-4 font-bold text-sm tracking-tight">{item.tool}</td>
+                          <td className="px-6 py-4 text-xs text-white/60 font-mono truncate max-w-[200px]">{item.input}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-[8px] font-bold px-2 py-0.5 rounded uppercase ${item.type === 'Free' ? 'bg-green-500/10 text-green-500' : 'bg-brand-primary/10 text-brand-primary'}`}>
+                              {item.type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-[10px] text-white/20 font-bold uppercase text-right">
+                            {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : activeTool === 'pricing' ? (
             <div className="space-y-8">
               <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                   <h2 className="text-5xl font-bold tracking-tight mb-4">Plans & Pricing</h2>
-                  <p className="text-white/60 text-lg">Upgrade your plan to unlock advanced AI features and higher limits. <span className="text-brand-primary font-bold">(Tools cost credits per generation)</span></p>
+                  <p className="text-white/60 text-lg">Upgrade your plan to unlock advanced AI features and higher limits.</p>
                 </div>
                 
                 {/* Currency Toggle */}
@@ -1480,19 +1513,19 @@ export default function App() {
                   <h3 className="text-xl font-bold mb-2">Starter</h3>
                   <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹199' : '$3'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 100 Monthly Credits</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Free Tools Only</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Voice Quality</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Basic Analytics</li>
                   </ul>
                   <button 
                     onClick={() => handleUpgrade('Starter', currency === 'INR' ? '₹199' : '$3')}
-                    disabled={userPlan === 'starter'}
+                    disabled={userPlan.toLowerCase() === 'starter'}
                     className={cn(
                       "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
-                      userPlan === 'starter' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
+                      userPlan.toLowerCase() === 'starter' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
                     )}
                   >
-                    {userPlan === 'starter' ? 'Current Plan' : 'Upgrade Now'}
+                    {userPlan.toLowerCase() === 'starter' ? 'Current Plan' : 'Upgrade Now'}
                   </button>
                 </div>
                 <div className="glass-panel p-8 border-brand-primary/50 bg-brand-primary/5">
@@ -1502,212 +1535,84 @@ export default function App() {
                   </div>
                   <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹999' : '$15'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 500 Monthly Credits</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Access to Paid Tools</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> High-Quality Voice Synthesis</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Advanced Analytics</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Support</li>
                   </ul>
                   <button 
                     onClick={() => handleUpgrade('Creator', currency === 'INR' ? '₹999' : '$15')}
-                    disabled={userPlan === 'creator'}
+                    disabled={userPlan.toLowerCase() === 'creator'}
                     className={cn(
                       "w-full py-3 rounded-xl font-bold transition-all",
-                      userPlan === 'creator' ? "bg-white/5 text-white/40 cursor-not-allowed border border-white/10" : "bg-brand-primary hover:shadow-lg hover:shadow-brand-primary/20"
+                      userPlan.toLowerCase() === 'creator' ? "bg-white/5 text-white/40 cursor-not-allowed border border-white/10" : "bg-brand-primary hover:shadow-lg hover:shadow-brand-primary/20"
                     )}
                   >
-                    {userPlan === 'creator' ? 'Current Plan' : 'Upgrade Now'}
+                    {userPlan.toLowerCase() === 'creator' ? 'Current Plan' : 'Upgrade Now'}
                   </button>
                 </div>
                 <div className="glass-panel p-8 border-white/10">
                   <h3 className="text-xl font-bold mb-2">Pro</h3>
                   <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹1,999' : '$29'}<span className="text-sm font-normal text-white/40">/mo</span></p>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> 2000 Monthly Credits</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Full Access to Paid Tools</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Ultra-Realistic Voice Cloning</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Advanced Channel Insights</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Priority AI Processing</li>
                   </ul>
                   <button 
                     onClick={() => handleUpgrade('Pro', currency === 'INR' ? '₹1,999' : '$29')}
-                    disabled={userPlan === 'pro'}
+                    disabled={userPlan.toLowerCase() === 'pro'}
                     className={cn(
                       "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
-                      userPlan === 'pro' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
+                      userPlan.toLowerCase() === 'pro' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
                     )}
                   >
-                    {userPlan === 'pro' ? 'Current Plan' : 'Upgrade Now'}
+                    {userPlan.toLowerCase() === 'pro' ? 'Current Plan' : 'Upgrade Now'}
                   </button>
                 </div>
               </div>
             </div>
-          ) : activeTool === 'payment' ? (
-            <div className="max-w-2xl mx-auto space-y-8">
-              <AnimatePresence mode="wait">
-                {paymentSuccess ? (
-                  <motion.div 
-                    key="success"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="glass-panel p-12 text-center space-y-6 border-brand-primary/50 bg-brand-primary/5"
-                  >
-                    <div className="w-20 h-20 bg-brand-primary/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <Sparkles className="w-10 h-10 text-brand-primary" />
-                    </div>
-                    <h2 className="text-4xl font-bold">Payment Successful!</h2>
-                    <p className="text-white/60 text-lg">
-                      Your plan has been upgraded to <span className="text-brand-primary font-bold">{selectedPlanForPayment?.name}</span>.
-                      Redirecting to your dashboard...
-                    </p>
-                  </motion.div>
-                ) : (
-                  <motion.div 
-                    key="payment-form"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="space-y-8"
-                  >
-                    <header className="text-center">
-                      <h2 className="text-4xl font-bold tracking-tight mb-4">Complete Your Upgrade</h2>
-                      <p className="text-white/60">You're upgrading to the <span className="text-brand-primary font-bold">{selectedPlanForPayment?.name}</span> plan.</p>
-                    </header>
-
-                    <div className="glass-panel p-8 space-y-8">
-                      <div className="flex items-center justify-between p-6 bg-white/5 rounded-2xl border border-white/10">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-xl bg-brand-primary/20 flex items-center justify-center">
-                            <Zap className="w-6 h-6 text-brand-primary" />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-lg">{selectedPlanForPayment?.name} Plan</h3>
-                            <p className="text-xs text-white/40">Monthly Subscription</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-brand-primary">{selectedPlanForPayment?.price}</p>
-                          <p className="text-[10px] text-white/40 uppercase tracking-widest">Per Month</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-6">
-                        <div className="space-y-4">
-                          <label className="text-xs font-bold uppercase tracking-widest text-white/40">Payment Method</label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <button 
-                              onClick={() => setPaymentMethod('card')}
-                              className={cn(
-                                "p-4 bg-white/5 border rounded-xl flex items-center justify-between transition-all",
-                                paymentMethod === 'card' ? "border-brand-primary/50 bg-brand-primary/5" : "border-white/10 hover:border-white/20"
-                              )}
-                            >
-                              <div className="flex items-center gap-3">
-                                <CreditCard className={cn("w-5 h-5", paymentMethod === 'card' ? "text-brand-primary" : "text-white/40")} />
-                                <span className="text-sm font-medium">Credit / Debit Card</span>
-                              </div>
-                              <div className={cn(
-                                "w-4 h-4 rounded-full border-2",
-                                paymentMethod === 'card' ? "border-brand-primary bg-brand-primary" : "border-white/20"
-                              )} />
-                            </button>
-
-                            <button 
-                              onClick={() => setPaymentMethod('upi')}
-                              className={cn(
-                                "p-4 bg-white/5 border rounded-xl flex items-center justify-between transition-all",
-                                paymentMethod === 'upi' ? "border-brand-primary/50 bg-brand-primary/5" : "border-white/10 hover:border-white/20"
-                              )}
-                            >
-                              <div className="flex items-center gap-3">
-                                <Smartphone className={cn("w-5 h-5", paymentMethod === 'upi' ? "text-brand-primary" : "text-white/40")} />
-                                <span className="text-sm font-medium">UPI Payment</span>
-                              </div>
-                              <div className={cn(
-                                "w-4 h-4 rounded-full border-2",
-                                paymentMethod === 'upi' ? "border-brand-primary bg-brand-primary" : "border-white/20"
-                              )} />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          {paymentError && (
-                            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs font-medium flex items-center gap-2">
-                              <Square className="w-4 h-4 rotate-45" />
-                              {paymentError}
-                            </div>
-                          )}
-                          
-                          {paymentMethod === 'card' ? (
-                            <div className="grid grid-cols-1 gap-4">
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Card Number</label>
-                                <input type="text" placeholder="**** **** **** 4242" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Expiry Date</label>
-                                  <input type="text" placeholder="MM/YY" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">CVC</label>
-                                  <input type="text" placeholder="***" disabled className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white/40 cursor-not-allowed" />
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="space-y-4">
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">UPI ID</label>
-                                <div className="relative">
-                                  <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                                  <input 
-                                    type="text" 
-                                    value={upiId}
-                                    readOnly
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white/40 cursor-not-allowed focus:outline-none transition-colors" 
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="pt-4">
-                          <button 
-                            onClick={processPayment}
-                            disabled={isPaying}
-                            className="w-full bg-white text-black font-bold py-5 rounded-2xl flex items-center justify-center gap-3 hover:bg-brand-primary hover:text-white transition-all shadow-xl shadow-white/5 disabled:opacity-50"
-                          >
-                            {isPaying ? (
-                              <div className="w-6 h-6 border-3 border-current border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <>
-                                <Zap className="w-5 h-5" />
-                                Upgrade Plan {selectedPlanForPayment?.price}
-                              </>
-                            )}
-                          </button>
-                          <p className="text-center text-[10px] text-white/20 mt-4 uppercase tracking-widest">
-                            Secure payment processed by Stripe. No real charges will be made.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => setActiveTool('pricing')}
-                      className="w-full text-center text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
-                    >
-                      Cancel and go back
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
           ) : (
             <>
-              <header className="mb-12">
+                      {/* Premium Lock Overlay for Paid Tools */}
+      {tools.some(t => t.id === activeTool) && 
+       !userPlanLoading && 
+       !(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro') && (
+        <div className="absolute inset-x-0 bottom-0 top-[120px] z-50 flex items-center justify-center p-8 bg-black/60 backdrop-blur-md rounded-3xl border border-white/10 mt-12 overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-md w-full glass-panel p-10 text-center space-y-8 relative overflow-hidden bg-black/80"
+          >
+            <div className="absolute inset-0 bg-gradient-to-b from-brand-primary/10 to-transparent pointer-events-none" />
+            
+            <div className="w-20 h-20 bg-brand-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-6 group">
+              <Lock className="w-10 h-10 text-brand-primary group-hover:scale-110 transition-transform" />
+            </div>
+
+            <div className="space-y-3">
+              <h2 className="text-3xl font-bold tracking-tight">Premium Tool</h2>
+              <p className="text-white/60 text-lg leading-relaxed">
+                Upgrade to unlock all 20+ AI tools.
+              </p>
+              <p className="text-[10px] uppercase tracking-widest font-black text-white/20 mt-4 leading-relaxed">
+                Free tools: Title Generator, Tag Generator & Description Generator
+              </p>
+            </div>
+
+            <button 
+              onClick={() => setActiveTool('pricing')}
+              className="w-full bg-brand-primary text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)]"
+            >
+              <Zap className="w-5 h-5" />
+              Upgrade Now
+            </button>
+          </motion.div>
+        </div>
+      )}
+
+      <header className="mb-12">
                 <div className="flex items-center gap-2 text-brand-primary mb-2">
                   <Sparkles className="w-4 h-4" />
                   <span className="text-xs font-bold uppercase tracking-[0.2em]">AI Powered Automation</span>
@@ -1892,7 +1797,7 @@ export default function App() {
                           className="space-y-6"
                         >
                           <div className="flex items-center gap-3 text-brand-primary">
-                            <History className="w-5 h-5" />
+                            <Sparkles className="w-5 h-5" />
                             <h3 className="text-xl font-bold">Generated Titles</h3>
                           </div>
                           <div className="glass-panel p-8 bg-brand-primary/5 border-brand-primary/20">
@@ -1905,7 +1810,7 @@ export default function App() {
                               onClick={() => copyToClipboard(result)}
                               className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
                             >
-                              <History className="w-4 h-4" />
+                              <Copy className="w-4 h-4" />
                               Copy All Titles
                             </button>
                           </div>
@@ -1991,7 +1896,7 @@ export default function App() {
                                   ))}
                                 </>
                               );
-                            } catch (e) {
+                            } catch {
                               return (
                                 <div className="glass-panel p-8 bg-brand-primary/5 border-brand-primary/20">
                                   <div className="prose prose-invert max-w-none prose-sm font-sans leading-relaxed text-white/90">
@@ -2114,7 +2019,7 @@ export default function App() {
                                   </div>
                                 </>
                               );
-                            } catch (e) {
+                            } catch {
                               return (
                                 <div className="glass-panel p-8 bg-brand-primary/5 border-brand-primary/20">
                                   <div className="prose prose-invert max-w-none prose-sm font-sans leading-relaxed text-white/90">
@@ -2514,6 +2419,136 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* UPI Dialog */}
+      <AnimatePresence>
+        {showUPIDialog && selectedPlan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="glass-panel max-w-md w-full p-8 space-y-6 relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-brand-primary" />
+              
+              <button 
+                onClick={() => setShowUPIDialog(false)}
+                className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 bg-brand-primary/20 rounded-xl flex items-center justify-center mx-auto mb-4">
+                  <Smartphone className="w-6 h-6 text-brand-primary" />
+                </div>
+                <h3 className="text-2xl font-bold">Pay with UPI</h3>
+                <p className="text-white/40 text-sm">Use the UPI ID below to pay <span className="text-brand-primary font-bold">{selectedPlan.price}</span> for the <span className="text-white font-bold">{selectedPlan.name}</span> plan.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">UPI ID</label>
+                  <div className="relative group">
+                    <input 
+                      type="text" 
+                      value="harshit1124@fam" 
+                      readOnly 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-4 pr-12 text-sm font-mono focus:outline-none"
+                    />
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText("harshit1124@fam");
+                        alert("UPI ID copied to clipboard");
+                      }}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-brand-primary transition-colors"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      upgradePlan(selectedPlan.name);
+                      setShowUPIDialog(false);
+                    }}
+                    className="w-full bg-brand-primary text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-brand-primary/20 transition-all"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Confirm Payment & Upgrade
+                  </button>
+                  <p className="text-center text-[10px] text-white/20 mt-4 uppercase tracking-widest">
+                    After payment, click confirm to send your request.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Processing Screen */}
+      <AnimatePresence>
+        {showProcessing && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="text-center space-y-8"
+            >
+              <div className="space-y-4">
+                <div className="relative w-28 h-28 mx-auto">
+                  {processingSuccess ? (
+                    <motion.div 
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="absolute inset-0 bg-red-900/40 rounded-full flex items-center justify-center border-2 border-red-500 shadow-[0_0_50px_rgba(239,68,68,0.3)]"
+                    >
+                      <Sparkles className="w-12 h-12 text-red-500" />
+                    </motion.div>
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 border-4 border-brand-primary/20 rounded-full" />
+                      <div className="absolute inset-0 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Zap className="w-8 h-8 text-brand-primary animate-pulse" />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  <h3 className="text-4xl font-bold tracking-tight text-white">
+                    {processingSuccess ? "Payment Successful!" : "Processing Payment"}
+                  </h3>
+                  <div className="max-w-xs mx-auto">
+                    <p className="text-white/60 text-base leading-relaxed">
+                      {processingSuccess ? (
+                        <>
+                          Your plan has been upgraded to <span className="text-red-500 font-bold">{selectedPlan?.name || 'Starter'}</span>. Redirecting to your dashboard...
+                        </>
+                      ) : (
+                        "Your request will be processed within 24 hours"
+                      )}
+                    </p>
+                  </div>
+                  {!processingSuccess && (
+                    <p className="text-white/20 text-[10px] uppercase tracking-widest mt-4">Please do not refresh or close this window</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-center gap-2 text-brand-primary/60 text-xs font-mono">
+                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showPrivacyPolicy && (

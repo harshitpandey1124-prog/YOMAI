@@ -41,7 +41,7 @@ async function startServer() {
         try {
           const errorData = await response.json();
           message = errorData.error?.message || message;
-        } catch (e) {
+        } catch {
           message = response.statusText || message;
         }
         
@@ -55,9 +55,10 @@ async function startServer() {
 
       const data = await response.json();
       res.json({ audioContent: data.audioContent });
-    } catch (error: any) {
-      console.error("TTS Proxy Error:", error.message);
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Internal Server Error";
+      console.error("TTS Proxy Error:", message);
+      res.status(500).json({ error: message });
     }
   });
 

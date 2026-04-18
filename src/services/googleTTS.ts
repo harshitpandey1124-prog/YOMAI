@@ -38,7 +38,7 @@ export const synthesizeSpeech = async (text: string, voice: TTSVoice) => {
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
-    } catch (e) {
+    } catch {
       // If not JSON, use the status text
       errorMessage = response.statusText || errorMessage;
     }

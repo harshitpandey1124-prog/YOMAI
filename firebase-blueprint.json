@@ -8,7 +8,7 @@
         "uid": { "type": "string", "description": "The unique identifier for the user." },
         "email": { "type": "string", "format": "email", "description": "The user's email address." },
         "displayName": { "type": "string", "description": "The user's display name." },
-        "plan": { "type": "string", "enum": ["none", "starter", "pro", "enterprise"], "description": "The user's current subscription plan." },
+        "plan": { "type": "string", "enum": ["none", "starter", "creator", "pro", "enterprise"], "description": "The user's current subscription plan." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created." }
       },
       "required": ["uid", "email", "plan", "createdAt"]
@@ -25,6 +25,31 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "When the tool was used." }
       },
       "required": ["userId", "tool", "type", "input", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment Request",
+      "description": "Stores a record of a user's request to upgrade their plan.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "plan": { "type": "string", "description": "The plan the user wants to upgrade to." },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"], "description": "The status of the payment request." },
+        "time": { "type": "string", "description": "The time the request was made." }
+      },
+      "required": ["email", "plan", "status", "time"]
+    },
+    "Upgrade": {
+      "title": "Plan Upgrade",
+      "description": "Stores a record of a user's plan upgrade request.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The ID of the user who upgraded." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "plan": { "type": "string", "description": "The plan the user upgraded to." },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"], "description": "The status of the upgrade request." },
+        "upgradedAt": { "type": "string", "format": "date-time", "description": "When the upgrade occurred." }
+      },
+      "required": ["userId", "email", "plan", "status", "upgradedAt"]
     }
   },
   "firestore": {
@@ -35,6 +60,14 @@
     "/history/{historyId}": {
       "schema": "History",
       "description": "Collection of tool usage history items."
+    },
+    "/payments/{userId}": {
+      "schema": "Payment",
+      "description": "Collection of payment request documents."
+    },
+    "/upgrades/{userId}": {
+      "schema": "Upgrade",
+      "description": "Collection of plan upgrade documents."
     }
   }
 }

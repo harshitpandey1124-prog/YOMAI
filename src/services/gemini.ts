@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
 const getAI = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -37,7 +37,7 @@ export const generateVoice = async (text: string, characterId: string = 'narrato
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: char.voice as any },
+          prebuiltVoiceConfig: { voiceName: char.voice },
         },
       },
     },
