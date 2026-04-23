@@ -560,16 +560,6 @@ export default function App() {
   };
 
   const handleAction = async () => {
-    const isPaidTool = tools.some(t => t.id === activeTool);
-    const hasAccess = userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro';
-
-    if (isPaidTool && !hasAccess) {
-      setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
-      setActiveTool('pricing');
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setResult(null);
     setAudioUrl(null);
@@ -680,6 +670,7 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 4000));
       setEnhancedVideoUrl(videoFile); // In a real app, this would be the processed video URL
       setResult("Video enhanced successfully! Resolution boosted to 4K and color grading applied.");
+      saveToHistory('Video Enhancer', 'Paid', 'Video File Processing');
     } catch (error) {
       console.error(error);
       setResult("Error enhancing video.");
@@ -719,6 +710,7 @@ export default function App() {
       
       const review = await analyzeText(`Act as a YouTube growth expert. Review this channel: ${stats.name} with ${stats.subscribers} subscribers, ${stats.views} views, and ${stats.videos} videos. Provide 3 actionable growth tips.`);
       setResult(review);
+      saveToHistory('Channel Analyzer', 'Paid', inputText);
     } catch (error) {
       console.error(error);
       setResult("Error analyzing channel. Please check the link.");
@@ -765,19 +757,24 @@ export default function App() {
             ctrPrediction: parseFloat((Math.random() * 10 + 2).toFixed(1)),
             estimatedViews: (Math.floor(Math.random() * 500) + 50) + "K - " + (Math.floor(Math.random() * 2) + 1) + "M",
           });
+          saveToHistory('Thumbnail Analyzer', 'Paid', file.name);
         } else if (activeTool === 'subtitles') {
           const srt = await generateSubtitles(base64);
           setSubtitleData(srt);
           setResult(srt);
+          saveToHistory('Auto Subtitles', 'Paid', file.name);
         } else if (activeTool === 'video-enhancer') {
           setVideoFile(base64);
           setResult("Video uploaded successfully. Click 'Enhance Quality' to begin AI processing.");
+          saveToHistory('Video Enhancer (Upload)', 'Paid', file.name);
         } else if (activeTool === 'voice-clone' || activeTool === 'audio-to-text') {
           const transcription = await transcribeAudio(base64);
           if (activeTool === 'voice-clone') {
             setResult(`Voice profile analyzed successfully. Reference transcript: "${transcription.slice(0, 100)}..."\n\nYou can now use this voice profile for generation.`);
+            saveToHistory('Voice Clone (Profile)', 'Paid', file.name);
           } else {
             setResult(transcription);
+            saveToHistory('Audio to Text', 'Paid', file.name);
           }
         }
       };
@@ -1219,20 +1216,15 @@ export default function App() {
                     key={tool.id}
                     onClick={() => {
                       setActiveTool(tool.id as Tool);
-                      if (!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro')) {
-                        setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
-                      }
+                      setResult(null);
+                      setAudioUrl(null);
+                      setInputText('');
                     }}
                     className="glass-panel p-6 text-left hover:bg-white/10 transition-all group border-white/5 hover:border-brand-primary/30"
                   >
                     <div className="flex items-center justify-between mb-4">
                       <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-brand-primary/20 group-hover:scale-110 transition-all relative">
                         <tool.icon className="w-6 h-6 text-white/40 group-hover:text-brand-primary" />
-                        {!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro') && (
-                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-black/60 border border-white/10 rounded-full flex items-center justify-center">
-                            <Shield className="w-2.5 h-2.5 text-brand-primary" />
-                          </div>
-                        )}
                       </div>
                       {tool.id === 'subtitles' && (
                         <span className="text-[8px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-1 rounded uppercase tracking-widest border border-brand-primary/20">
@@ -1575,44 +1567,8 @@ export default function App() {
             </div>
           ) : (
             <>
-                      {/* Premium Lock Overlay for Paid Tools */}
-      {tools.some(t => t.id === activeTool) && 
-       !userPlanLoading && 
-       !(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro') && (
-        <div className="absolute inset-x-0 bottom-0 top-[120px] z-50 flex items-center justify-center p-8 bg-black/60 backdrop-blur-md rounded-3xl border border-white/10 mt-12 overflow-hidden">
-          <motion.div 
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="max-w-md w-full glass-panel p-10 text-center space-y-8 relative overflow-hidden bg-black/80"
-          >
-            <div className="absolute inset-0 bg-gradient-to-b from-brand-primary/10 to-transparent pointer-events-none" />
-            
-            <div className="w-20 h-20 bg-brand-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-6 group">
-              <Lock className="w-10 h-10 text-brand-primary group-hover:scale-110 transition-transform" />
-            </div>
-
-            <div className="space-y-3">
-              <h2 className="text-3xl font-bold tracking-tight">Premium Tool</h2>
-              <p className="text-white/60 text-lg leading-relaxed">
-                Upgrade to unlock all 20+ AI tools.
-              </p>
-              <p className="text-[10px] uppercase tracking-widest font-black text-white/20 mt-4 leading-relaxed">
-                Free tools: Title Generator, Tag Generator & Description Generator
-              </p>
-            </div>
-
-            <button 
-              onClick={() => setActiveTool('pricing')}
-              className="w-full bg-brand-primary text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)]"
-            >
-              <Zap className="w-5 h-5" />
-              Upgrade Now
-            </button>
-          </motion.div>
-        </div>
-      )}
-
-      <header className="mb-12">
+                      {/* Premium Lock Overlay Removed */}
+            <header className="mb-12">
                 <div className="flex items-center gap-2 text-brand-primary mb-2">
                   <Sparkles className="w-4 h-4" />
                   <span className="text-xs font-bold uppercase tracking-[0.2em]">AI Powered Automation</span>

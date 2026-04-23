@@ -43,9 +43,8 @@ const app = initializeApp(firebaseConfig);
 export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 export const auth = getAuth(app);
 
-// Use the applet-specific database ID if available
-const databaseId = "ai-studio-c2981c97-b9dd-477a-9b0b-ad95209830fd";
-export const db = getFirestore(app, databaseId);
+// Use default database for this project
+export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export { 

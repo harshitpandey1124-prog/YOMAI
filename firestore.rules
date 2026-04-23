@@ -1,68 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // GLOBAL HELPERS
-    // ===============================================================
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    // Direct Admin check - using hardcoded values for performance in list queries
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.uid == "VvR4FNwdBpTW638DjUoctA0zJOj2" || 
-        request.auth.token.email == "harshitpandey1124@gmail.com"
-      );
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    // ===============================================================
-    // MATCH BLOCKS
-    // ===============================================================
-
-    // Global Deny
+    // PUBLIC READ/WRITE FOR TROUBLESHOOTING
+    // DO NOT LEAVE THIS IN PRODUCTION
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Users
-    match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    // History
-    match /history/{historyId} {
-      // Rules for list/get must be proveable by the query filters
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow get: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      
-      // Simple write rule for history
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow delete: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow update: if false;
-    }
-
-    // Upgrades
-    match /upgrades/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      // Relaxing write rules to ensure upgrade requests can be stored
-      allow create, update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    // Legacy Payments (Keep for compatibility)
-    match /payments/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId) || isAdmin();
+      allow read, write: if true;
     }
   }
 }
