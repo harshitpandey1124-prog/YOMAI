@@ -13,19 +13,6 @@
       },
       "required": ["uid", "email", "plan", "createdAt"]
     },
-    "History": {
-      "title": "Tool Usage History",
-      "description": "Stores a record of tool usage by users.",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string", "description": "The ID of the user who used the tool." },
-        "tool": { "type": "string", "description": "The name of the tool used." },
-        "type": { "type": "string", "enum": ["Free", "Paid"], "description": "The type of tool usage." },
-        "input": { "type": "string", "description": "The input provided to the tool." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the tool was used." }
-      },
-      "required": ["userId", "tool", "type", "input", "createdAt"]
-    },
     "Payment": {
       "title": "Payment Request",
       "description": "Stores a record of a user's request to upgrade their plan.",
@@ -44,12 +31,13 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "The ID of the user who upgraded." },
-        "email": { "type": "string", "format": "email", "description": "The user's email address." },
-        "plan": { "type": "string", "description": "The plan the user upgraded to." },
+        "currentPlan": { "type": "string", "description": "The user's current plan." },
+        "requestedPlan": { "type": "string", "description": "The plan the user requested." },
+        "transactionId": { "type": "string", "description": "The transaction ID provided by the user." },
         "status": { "type": "string", "enum": ["pending", "completed", "failed"], "description": "The status of the upgrade request." },
-        "upgradedAt": { "type": "string", "format": "date-time", "description": "When the upgrade occurred." }
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the upgrade occurred." }
       },
-      "required": ["userId", "email", "plan", "status", "upgradedAt"]
+      "required": ["userId", "currentPlan", "requestedPlan", "transactionId", "status", "timestamp"]
     }
   },
   "firestore": {
@@ -57,15 +45,11 @@
       "schema": "User",
       "description": "Collection of user profile documents."
     },
-    "/history/{historyId}": {
-      "schema": "History",
-      "description": "Collection of tool usage history items."
-    },
     "/payments/{userId}": {
       "schema": "Payment",
       "description": "Collection of payment request documents."
     },
-    "/upgrades/{userId}": {
+    "/upgrade/{upgradeId}": {
       "schema": "Upgrade",
       "description": "Collection of plan upgrade documents."
     }

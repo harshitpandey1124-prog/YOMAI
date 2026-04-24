@@ -70,14 +70,14 @@ export const analyzeText = async (prompt: string) => {
   return response.text;
 };
 
-export const generateSubtitles = async (audioBuffer: string) => {
+export const generateSubtitles = async (audioBuffer: string, language: string = 'English') => {
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: {
       parts: [
         { inlineData: { data: audioBuffer.split(',')[1], mimeType: "audio/mp3" } },
-        { text: "Generate professional SRT subtitles for this audio. Include accurate timestamps and format it strictly as a valid .srt file. Do not include any other text." }
+        { text: `Generate professional SRT subtitles for this audio in ${language}. Include accurate timestamps and format it strictly as a valid .srt file. Do not include any other text.` }
       ]
     }
   });

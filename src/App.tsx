@@ -19,11 +19,8 @@ import {
   Volume2,
   Type,
   LayoutDashboard,
-  History,
   CreditCard,
   User as UserIcon,
-  Calendar,
-  ExternalLink,
   Square,
   Zap,
   Tag,
@@ -33,9 +30,11 @@ import {
   LogOut,
   Smartphone,
   AlertCircle,
+  ArrowRight,
   Shield,
   Lock,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -62,10 +61,10 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
 } from './firebase';
 
-type Tool = 'dashboard' | 'voice-gen' | 'voice-clone' | 'subtitles' | 'video-enhancer' | 'channel-analyzer' | 'thumbnail-analyzer' | 'settings' | 'pricing' | 'title-gen' | 'tag-gen' | 'desc-gen' | 'audio-to-text' | 'history';
+type Tool = 'dashboard' | 'voice-gen' | 'voice-clone' | 'subtitles' | 'video-enhancer' | 'channel-analyzer' | 'thumbnail-analyzer' | 'settings' | 'pricing' | 'title-gen' | 'tag-gen' | 'desc-gen' | 'audio-to-text';
 
 enum OperationType {
   CREATE = 'create',
@@ -167,12 +166,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-interface HistoryItem {
-  id: string;
-  tool: string;
-  type: string;
-  input: string;
-  createdAt: { toDate: () => Date } | null;
+interface UserData {
+  uid: string;
+  email: string;
+  displayName: string;
+  plan: string;
+  createdAt: any;
 }
 
 export default function App() {
@@ -194,6 +193,8 @@ export default function App() {
   const [enhancedVideoUrl, setEnhancedVideoUrl] = useState<string | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancementProgress, setEnhancementProgress] = useState(0);
+  const [subtitleProgress, setSubtitleProgress] = useState(0);
+  const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
   const [channelStats, setChannelStats] = useState<{
     name: string;
     subscribers: string;
@@ -217,10 +218,10 @@ export default function App() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [userPlan, setUserPlan] = useState<string>('none');
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
-  const [userPlanLoading, setUserPlanLoading] = useState(true);
+  const [subtitleLanguage, setSubtitleLanguage] = useState<string>('English');
   const [currency, setCurrency] = useState<'USD' | 'INR'>('INR');
   const [showUPIDialog, setShowUPIDialog] = useState(false);
+  const [transactionIdInput, setTransactionIdInput] = useState('');
   const [showProcessing, setShowProcessing] = useState(false);
   const [processingSuccess, setProcessingSuccess] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<{name: string, price: string} | null>(null);
@@ -229,12 +230,10 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | null = null;
-    let unsubscribeHistory: (() => void) | null = null;
 
     // 🛡️ Safety timeout: Ensure loading screen eventually clears
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
-      setUserPlanLoading(false);
     }, 10000); // 10s maximum load time
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -248,12 +247,6 @@ export default function App() {
         setUser(user);
         setDisplayName(user.displayName || user.email?.split('@')[0] || 'User');
         setEmail(user.email || '');
-
-        // Clean up previous history listener
-        if (unsubscribeHistory) {
-          unsubscribeHistory();
-          unsubscribeHistory = null;
-        }
 
         const userDocRef = doc(db, 'users', user.uid);
         
@@ -283,7 +276,6 @@ export default function App() {
             console.warn("User plan fetch timed out, using default.");
             setUserPlan('none');
           } finally {
-            setUserPlanLoading(false);
             clearTimeout(safetyTimer);
           }
 
@@ -292,35 +284,15 @@ export default function App() {
             if (snapshot.exists()) {
               const updatedPlan = (snapshot.data().plan as string) || 'none';
               setUserPlan(updatedPlan);
-              setUserPlanLoading(false);
             }
           }, (error) => {
             console.error("Firestore sync error:", error);
             handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
           });
 
-          // 3. Set up History listener
-          const historyQuery = query(
-            collection(db, 'history'),
-            where('userId', '==', user.uid),
-            orderBy('createdAt', 'desc'),
-            limit(50)
-          );
-          
-          unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
-            const items = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            })) as HistoryItem[];
-            setHistoryItems(items);
-          }, (error) => {
-            console.error("History sync error:", error);
-          });
-
         } catch (error: unknown) {
           console.error("Error establishing user data sync:", error);
           setAuthLoading(false);
-          setUserPlanLoading(false);
         }
       } else {
         setUser(null);
@@ -328,7 +300,6 @@ export default function App() {
         setEmail('');
         setUserPlan('none');
         setAuthLoading(false);
-        setUserPlanLoading(false);
         clearTimeout(safetyTimer);
       }
     });
@@ -336,7 +307,6 @@ export default function App() {
     return () => {
       unsubscribeAuth();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
-      if (unsubscribeHistory) unsubscribeHistory();
       clearTimeout(safetyTimer);
     };
   }, []);
@@ -422,15 +392,16 @@ export default function App() {
     }, 30000);
 
     try {
-      // 🔹 Save in Firebase
-      await setDoc(
-        doc(db, "upgrades", user.uid),
+      // 🔹 Save in Firebase Upgrade Collection
+      await addDoc(
+        collection(db, "upgrade"),
         {
           userId: user.uid,
-          email: user.email,
-          plan: plan,
+          currentPlan: userPlan,
+          requestedPlan: plan.toLowerCase(),
+          transactionId: transactionIdInput,
           status: "pending",
-          upgradedAt: serverTimestamp()
+          timestamp: serverTimestamp()
         }
       );
 
@@ -539,27 +510,25 @@ export default function App() {
   ];
 
   const accountTools = [
-    { id: 'history', name: 'History', icon: History, desc: 'Usage Logs' },
     { id: 'settings', name: 'Settings', icon: Settings, desc: 'Account Preferences' },
     { id: 'pricing', name: 'Plans & Pricing', icon: CreditCard, desc: 'Manage Subscription' },
   ];
 
-  const saveToHistory = async (tool: string, type: 'Free' | 'Paid', input: string) => {
-    if (!user) return;
-    try {
-      await addDoc(collection(db, 'history'), {
-        userId: user.uid,
-        tool,
-        type,
-        input: input.slice(0, 500),
-        createdAt: serverTimestamp()
-      });
-    } catch (error) {
-      console.error("Error saving history:", error);
+  const isToolLocked = (toolId: string) => {
+    if (freeTools.some(t => t.id === toolId)) return false;
+    if (userPlan === 'pro' || userPlan === 'creator' || userPlan === 'enterprise') return false;
+    if (userPlan === 'starter') {
+      // Starter gets some basic AI tools: Voice Gen (Standard), Analytics (Basic)
+      return !['voice-gen', 'channel-analyzer', 'thumbnail-analyzer'].includes(toolId);
     }
+    return true; // none plan - blocks all tools in 'tools' array
   };
 
   const handleAction = async () => {
+    if (isToolLocked(activeTool)) {
+      setActiveTool('pricing');
+      return;
+    }
     setLoading(true);
     setResult(null);
     setAudioUrl(null);
@@ -570,30 +539,25 @@ export default function App() {
           const clonedUrl = await generateVoice(inputText, 'guide');
           setAudioUrl(clonedUrl);
           setResult(`**Cloned Audio Profile:** Friendly Guide\n\n**Audio Script:**\n${inputText}`);
-          saveToHistory('Voice Clone', 'Paid', inputText);
           break;
         }
         case 'video-enhancer': {
           const enhancement = await analyzeText(`Act as a YouTube expert. Enhance this video idea/script: ${inputText}`);
           setResult(enhancement);
-          saveToHistory('Video Enhancer', 'Paid', inputText);
           break;
         }
         case 'channel-analyzer': {
           const analysis = await analyzeText(`Analyze this YouTube channel data/niche: ${inputText}`);
           setResult(analysis);
-          saveToHistory('Channel Analyzer', 'Paid', inputText);
           break;
         }
         case 'audio-to-text': {
           const transcription = await analyzeText(`Act as a transcription expert. Transcribe or summarize this audio content request: ${inputText}`);
           setResult(transcription);
-          saveToHistory('Audio to Text', 'Paid', inputText);
           break;
         }
         case 'voice-gen': {
           handleSpeak();
-          saveToHistory('Voice Generation', 'Paid', inputText);
           break;
         }
         case 'title-gen': {
@@ -606,7 +570,6 @@ export default function App() {
           
           Format the output as a clear markdown list with bold category headers.`);
           setResult(titles);
-          saveToHistory('Title Generator', 'Free', inputText);
           break;
         }
         case 'tag-gen': {
@@ -618,7 +581,6 @@ export default function App() {
           
           Format the output as a JSON object with keys "seo", "trending", and "shorts", where each value is a comma-separated string of tags.`);
           setResult(tags);
-          saveToHistory('Tag Generator', 'Free', inputText);
           break;
         }
         case 'desc-gen': {
@@ -630,7 +592,6 @@ export default function App() {
           
           Format the output as a JSON object with keys "description", "hashtags", and "keywords".`);
           setResult(desc);
-          saveToHistory('Description Generator', 'Free', inputText);
           break;
         }
         default:
@@ -646,7 +607,6 @@ export default function App() {
 
   const handleEnhance = async () => {
     if (userPlan === 'none') {
-      setResult("### 🔒 Plan Required\n\nVideo Enhancement is a premium feature. Please upgrade your plan to access this feature.");
       setActiveTool('pricing');
       return;
     }
@@ -670,7 +630,6 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 4000));
       setEnhancedVideoUrl(videoFile); // In a real app, this would be the processed video URL
       setResult("Video enhanced successfully! Resolution boosted to 4K and color grading applied.");
-      saveToHistory('Video Enhancer', 'Paid', 'Video File Processing');
     } catch (error) {
       console.error(error);
       setResult("Error enhancing video.");
@@ -682,7 +641,6 @@ export default function App() {
 
   const handleAnalyzeChannel = async () => {
     if (userPlan === 'none') {
-      setResult("### 🔒 Plan Required\n\nChannel Analysis is a premium feature. Please upgrade your plan to access this feature.");
       setActiveTool('pricing');
       return;
     }
@@ -710,7 +668,6 @@ export default function App() {
       
       const review = await analyzeText(`Act as a YouTube growth expert. Review this channel: ${stats.name} with ${stats.subscribers} subscribers, ${stats.views} views, and ${stats.videos} videos. Provide 3 actionable growth tips.`);
       setResult(review);
-      saveToHistory('Channel Analyzer', 'Paid', inputText);
     } catch (error) {
       console.error(error);
       setResult("Error analyzing channel. Please check the link.");
@@ -722,11 +679,9 @@ export default function App() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const isPaidTool = tools.some(t => t.id === activeTool);
     if (isPaidTool && userPlan === 'none') {
-      setResult("### 🔒 Plan Required\n\nThis tool requires a premium plan. Please upgrade to continue.");
       setActiveTool('pricing');
       return;
     }
-
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -757,24 +712,45 @@ export default function App() {
             ctrPrediction: parseFloat((Math.random() * 10 + 2).toFixed(1)),
             estimatedViews: (Math.floor(Math.random() * 500) + 50) + "K - " + (Math.floor(Math.random() * 2) + 1) + "M",
           });
-          saveToHistory('Thumbnail Analyzer', 'Paid', file.name);
         } else if (activeTool === 'subtitles') {
-          const srt = await generateSubtitles(base64);
-          setSubtitleData(srt);
-          setResult(srt);
-          saveToHistory('Auto Subtitles', 'Paid', file.name);
+          setIsGeneratingSubtitles(true);
+          setSubtitleProgress(0);
+          
+          const progressInterval = setInterval(() => {
+            setSubtitleProgress(prev => {
+              if (prev >= 95) {
+                clearInterval(progressInterval);
+                return 95;
+              }
+              return prev + Math.random() * 10;
+            });
+          }, 300);
+
+          try {
+            const srt = await generateSubtitles(base64, subtitleLanguage);
+            clearInterval(progressInterval);
+            setSubtitleProgress(100);
+            
+            // Artificial delay to let progress reach 100%
+            setTimeout(() => {
+              setSubtitleData(srt);
+              setResult(srt);
+              setIsGeneratingSubtitles(false);
+            }, 500);
+          } catch (err) {
+            clearInterval(progressInterval);
+            setIsGeneratingSubtitles(false);
+            throw err;
+          }
         } else if (activeTool === 'video-enhancer') {
           setVideoFile(base64);
           setResult("Video uploaded successfully. Click 'Enhance Quality' to begin AI processing.");
-          saveToHistory('Video Enhancer (Upload)', 'Paid', file.name);
         } else if (activeTool === 'voice-clone' || activeTool === 'audio-to-text') {
           const transcription = await transcribeAudio(base64);
           if (activeTool === 'voice-clone') {
             setResult(`Voice profile analyzed successfully. Reference transcript: "${transcription.slice(0, 100)}..."\n\nYou can now use this voice profile for generation.`);
-            saveToHistory('Voice Clone (Profile)', 'Paid', file.name);
           } else {
             setResult(transcription);
-            saveToHistory('Audio to Text', 'Paid', file.name);
           }
         }
       };
@@ -1027,13 +1003,9 @@ export default function App() {
               key={tool.id}
               onClick={() => {
                 setActiveTool(tool.id as Tool);
-                if (!(userPlan.toLowerCase() === 'creator' || userPlan.toLowerCase() === 'pro')) {
-                  setResult("### 🔒 Creator Plan Required\n\nThis is a premium AI tool. Please upgrade to the **Creator** or **Pro** plan to access this feature.");
-                } else {
-                  setResult(null);
-                  setAudioUrl(null);
-                  setInputText('');
-                }
+                setResult(null);
+                setAudioUrl(null);
+                setInputText('');
               }}
               className={cn(
                 "w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group",
@@ -1129,7 +1101,9 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-xs font-medium truncate">{displayName}</p>
-              <p className="text-[10px] text-white/40">{userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan Active</p>
+                        <p className="text-[10px] text-white/40">
+                {userPlan === 'none' ? 'Free Plan' : `${userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan • Valid until ${new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
+              </p>
             </div>
           </div>
           <button 
@@ -1150,65 +1124,66 @@ export default function App() {
         <div className="max-w-4xl mx-auto p-12">
           {activeTool === 'dashboard' ? (
             <div className="space-y-12">
-              <header>
-                <div className="flex items-center gap-2 text-brand-primary mb-2">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-[0.2em]">Welcome to YOMAI</span>
-                </div>
-                <h2 className="text-5xl font-bold tracking-tight mb-4">Creator Dashboard</h2>
-                <p className="text-white/60 text-lg max-w-2xl">
-                  Select a tool below to start automating your YouTube content creation workflow.
-                </p>
-
-                {/* Selected Plan Bar */}
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-white/5 border border-white/10 rounded-2xl w-full"
-                >
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="w-12 h-12 rounded-xl bg-brand-primary/10 flex items-center justify-center">
-                      <Zap className="w-6 h-6 text-brand-primary" />
+              <div className="flex flex-col lg:flex-row gap-8 items-start">
+                <div className="flex-1">
+                  <header>
+                    <div className="flex items-center gap-2 text-brand-primary mb-2">
+                      <Sparkles className="w-4 h-4" />
+                      <span className="text-xs font-bold uppercase tracking-[0.2em]">Welcome to YOMAI</span>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-bold text-white">{userPlan === 'none' ? 'No Active' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan</h3>
-                        {userPlan !== 'none' && (
-                          <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
-                            {currency === 'INR' ? (
-                              userPlan === 'starter' ? '₹199/mo' : userPlan === 'creator' ? '₹999/mo' : '₹1,999/mo'
-                            ) : (
-                              userPlan === 'starter' ? '$3/mo' : userPlan === 'creator' ? '$15/mo' : '$29/mo'
-                            )}
-                          </span>
-                        )}
+                    <h2 className="text-5xl font-bold tracking-tight mb-4">Creator Dashboard</h2>
+                    <p className="text-white/60 text-lg max-w-2xl">
+                      Select a tool below to start automating your YouTube content creation workflow.
+                    </p>
+                  </header>
+                </div>
+                
+                {/* Subscription Widget */}
+                <div className="w-full lg:w-80 shrink-0">
+                  <div className="glass-panel p-6 bg-brand-primary/5 border-brand-primary/10 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-primary/5 blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/10 transition-colors" />
+                    <div className="space-y-4 relative">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="w-4 h-4 text-brand-primary" />
+                          <h4 className="text-xs font-bold uppercase tracking-widest text-white/40">Your Plan</h4>
+                        </div>
+                        <button 
+                          onClick={() => setActiveTool('pricing')}
+                          className="text-[10px] font-bold uppercase tracking-widest text-brand-primary hover:text-white transition-colors"
+                        >
+                          Manage
+                        </button>
                       </div>
-                      <p className="text-sm text-white/40">{userPlan === 'none' ? 'Upgrade to unlock AI features' : 'Subscription active'}</p>
+                      
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 border border-brand-primary/20 flex items-center justify-center">
+                          <Zap className="w-6 h-6 text-brand-primary" />
+                        </div>
+                        <div>
+                          <p className="text-xl font-bold text-white capitalize">{userPlan === 'none' ? 'Free' : userPlan} Plan</p>
+                          <p className="text-xs text-white/40 mt-0.5">
+                            Valid until {new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Active Status</span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-white/10 group-hover:text-brand-primary group-hover:translate-x-1 transition-all" />
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-6 w-full md:w-auto">
-                    <div className="flex flex-col items-end gap-1.5 opacity-0">
-                      <div className="w-48 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-brand-primary/20 w-0" />
-                      </div>
-                      <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest opacity-0">Resets 4/23/2026</p>
-                    </div>
-                    <button 
-                      onClick={() => setActiveTool('pricing')}
-                      className="flex items-center gap-2 px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-brand-primary hover:text-white transition-all shadow-lg shadow-white/5"
-                    >
-                      <CreditCard className="w-4 h-4" />
-                      Upgrade
-                    </button>
-                  </div>
-                </motion.div>
-
-                <div className="flex items-center gap-2 text-brand-primary mt-12">
-                  <Sparkles className="w-4 h-4" />
-                  <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Paid Tools</h4>
                 </div>
-              </header>
+              </div>
+
+              <div className="flex items-center gap-2 text-brand-primary">
+                <Sparkles className="w-4 h-4" />
+                <h4 className="text-xs font-bold uppercase tracking-[0.2em]">AI Tools</h4>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {tools.map((tool) => (
@@ -1231,9 +1206,9 @@ export default function App() {
                           Export SRT
                         </span>
                       )}
-                      {tool.status === 'Not Awailable' && (
+                      {tool.status === 'Not Available' && (
                         <span className="text-[8px] font-bold text-white bg-white/10 px-2 py-1 rounded uppercase tracking-widest border border-white/20">
-                          Not Awailable
+                          Not Available
                         </span>
                       )}
                     </div>
@@ -1248,7 +1223,7 @@ export default function App() {
 
               <div className="flex items-center gap-2 text-brand-primary mt-16 mb-6">
                 <Sparkles className="w-4 h-4" />
-                <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Free Tools</h4>
+                <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Assistant Tools</h4>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1320,61 +1295,57 @@ export default function App() {
                 </div>
 
                 {/* Subscription & Billing Category */}
-                <div className="glass-panel p-8 space-y-6">
-                  <div className="space-y-1 mb-2">
-                    <div className="flex items-center gap-2 text-brand-primary">
-                      <CreditCard className="w-4 h-4" />
-                      <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Subscription & Billing</h4>
+                <div className="glass-panel p-8 space-y-8 bg-black/20 border-white/5">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-white">
+                      <CreditCard className="w-5 h-5 text-brand-primary" />
+                      <h4 className="text-xl font-bold">Subscription & Billing</h4>
                     </div>
-                    <p className="text-xs text-white/40">Manage your plan and billing</p>
+                    <p className="text-sm text-white/40">Manage your plan, payment method, and billing</p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-brand-primary/10 flex items-center justify-center">
-                          <CreditCard className="w-5 h-5 text-brand-primary" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Plan Status</p>
-                            <span className="text-[10px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded uppercase">{userPlan === 'none' ? 'No Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}</span>
-                          </div>
-                          <p className="text-sm font-medium">{userPlan === 'none' ? 'In-active' : 'Active'}</p>
-                        </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-start gap-4">
+                      <div className="w-14 h-14 rounded-2xl bg-brand-primary/10 border border-brand-primary/20 flex items-center justify-center">
+                        <Zap className="w-7 h-7 text-brand-primary shadow-[0_0_15px_rgba(255,0,0,0.3)]" />
                       </div>
-                      <div className="space-y-1.5">
-                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden opacity-0">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: userPlan === 'none' ? '0%' : userPlan === 'starter' ? '100%' : userPlan === 'creator' ? '90%' : '22.5%' }}
-                            transition={{ duration: 1, ease: "easeOut" }}
-                            className="h-full bg-brand-primary rounded-full"
-                          />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="text-lg font-bold text-white">
+                            {userPlan === 'none' ? 'Free Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}
+                          </h3>
+                          <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded uppercase">
+                            {userPlan.trim().toLowerCase() === 'none' ? '$0/mo' : 
+                             userPlan.trim().toLowerCase() === 'starter' ? '$3 / ₹199 per month' : 
+                             userPlan.trim().toLowerCase() === 'creator' ? '$15 / ₹999 per month' : 
+                             userPlan.trim().toLowerCase() === 'pro' ? '$29 / ₹1,999 per month' :
+                             '$29 / ₹1,999 per month'}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-[10px] text-white/20 uppercase tracking-widest font-bold opacity-0">{userPlan === 'none' ? 'No active subscription' : 'Resets 4/23/2026'}</p>
-                          <button 
-                            onClick={() => setActiveTool('pricing')}
-                            className="text-[10px] font-bold text-brand-primary hover:underline uppercase tracking-widest"
-                          >
-                            {userPlan === 'none' ? 'Get a Plan' : 'Current Plan'}
-                          </button>
-                        </div>
+                        <p className="text-sm text-white/40">
+                          {userPlan.toLowerCase() === 'none' ? 'Standard account features enabled' : 'Full access to AI tools enabled'}
+                        </p>
                       </div>
                     </div>
-                    <div className="p-4 bg-white/5 rounded-xl border border-white/5 flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-brand-primary/10 flex items-center justify-center">
-                        <Calendar className="w-5 h-5 text-brand-primary" />
-                      </div>
+
+                    <div className="flex justify-end text-[10px] font-bold uppercase tracking-widest text-white/20">
+                      <span>Resets {new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-8 border-t border-white/5">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-white/[0.02] border border-white/10 rounded-2xl">
                       <div>
-                        <p className="text-xs text-white/40 uppercase tracking-wider font-bold">Next Billing Date</p>
-                        <p className="text-sm font-medium">{userPlan === 'none' ? 'N/A' : 'April 24, 2026'}</p>
+                        <h4 className="text-base font-bold text-white">Change Plan</h4>
+                        <p className="text-xs text-white/40 mt-1">Upgrade or downgrade your subscription</p>
                       </div>
-                      {userPlan !== 'none' && (
-                        <button className="ml-auto text-[10px] font-bold text-brand-primary hover:underline flex items-center gap-1">
-                          Invoices <ExternalLink className="w-2 h-2" />
-                        </button>
-                      )}
+                      <button 
+                        onClick={() => setActiveTool('pricing')}
+                        className="flex items-center justify-center gap-2 px-6 py-3 bg-brand-primary text-white font-bold rounded-xl hover:shadow-[0_0_20px_rgba(255,0,0,0.3)] transition-all group"
+                      >
+                        <span className="text-sm">View Plans</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1408,65 +1379,22 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Preferences Category */}
-                <div className="glass-panel p-8 space-y-6">
-                  <div className="flex items-center gap-2 text-brand-primary mb-2">
-                    <Settings className="w-4 h-4" />
-                    <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Preferences</h4>
-                  </div>
-                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl">
-                    <div>
-                      <p className="font-medium">Auto-Save History</p>
-                      <p className="text-xs text-white/40">Automatically save all generations to your history</p>
+                  {/* Preferences Category */}
+                  <div className="glass-panel p-8 space-y-6">
+                    <div className="flex items-center gap-2 text-brand-primary mb-2">
+                      <Settings className="w-4 h-4" />
+                      <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Preferences</h4>
                     </div>
-                    <div className="w-10 h-5 bg-brand-primary rounded-full relative">
-                      <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full" />
+                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl">
+                      <div>
+                        <p className="font-medium">Dark Mode</p>
+                        <p className="text-xs text-white/40">Toggle application theme</p>
+                      </div>
+                      <div className="w-10 h-5 bg-brand-primary rounded-full relative">
+                        <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          ) : activeTool === 'history' ? (
-            <div className="space-y-8">
-              <header>
-                <h2 className="text-5xl font-bold tracking-tight mb-4">History</h2>
-                <p className="text-white/60 text-lg">Your recent activity and tool usage.</p>
-              </header>
-              <div className="glass-panel overflow-hidden border-white/5">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-white/5 bg-white/5">
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Tool</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Input</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40">Type</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white/40 text-right">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {historyItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-12 text-center text-white/20 italic">
-                          No history found yet. Start using tools to see them here!
-                        </td>
-                      </tr>
-                    ) : (
-                      historyItems.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-white/5 transition-colors group">
-                          <td className="px-6 py-4 font-bold text-sm tracking-tight">{item.tool}</td>
-                          <td className="px-6 py-4 text-xs text-white/60 font-mono truncate max-w-[200px]">{item.input}</td>
-                          <td className="px-6 py-4">
-                            <span className={`text-[8px] font-bold px-2 py-0.5 rounded uppercase ${item.type === 'Free' ? 'bg-green-500/10 text-green-500' : 'bg-brand-primary/10 text-brand-primary'}`}>
-                              {item.type}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-[10px] text-white/20 font-bold uppercase text-right">
-                            {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Just now'}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
               </div>
             </div>
           ) : activeTool === 'pricing' ? (
@@ -1477,12 +1405,12 @@ export default function App() {
                   <p className="text-white/60 text-lg">Upgrade your plan to unlock advanced AI features and higher limits.</p>
                 </div>
                 
-                {/* Currency Toggle */}
+                {/* Currency Table */}
                 <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-xl w-fit">
                   <button 
                     onClick={() => setCurrency('INR')}
                     className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+                      "px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
                       currency === 'INR' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
@@ -1491,7 +1419,7 @@ export default function App() {
                   <button 
                     onClick={() => setCurrency('USD')}
                     className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+                      "px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
                       currency === 'USD' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
@@ -1503,21 +1431,31 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="glass-panel p-8 border-white/10">
                   <h3 className="text-xl font-bold mb-2">Starter</h3>
-                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹199' : '$3'}<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <div className="mb-6">
+                    {currency === 'USD' ? (
+                      <>
+                        <p className="text-3xl font-bold text-white">$3 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">₹199 /mo</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-3xl font-bold text-white">₹199 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">$3 /mo</p>
+                      </>
+                    )}
+                  </div>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Free Tools Only</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Voice Quality</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Basic Analytics</li>
                   </ul>
                   <button 
-                    onClick={() => handleUpgrade('Starter', currency === 'INR' ? '₹199' : '$3')}
-                    disabled={userPlan.toLowerCase() === 'starter'}
+                    onClick={() => handleUpgrade('Starter', '$3 / ₹199')}
                     className={cn(
-                      "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
-                      userPlan.toLowerCase() === 'starter' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
+                      "w-full py-3 rounded-xl border border-white/10 font-bold transition-all hover:bg-white/5"
                     )}
                   >
-                    {userPlan.toLowerCase() === 'starter' ? 'Current Plan' : 'Upgrade Now'}
+                    Upgrade Now
                   </button>
                 </div>
                 <div className="glass-panel p-8 border-brand-primary/50 bg-brand-primary/5">
@@ -1525,7 +1463,19 @@ export default function App() {
                     <h3 className="text-xl font-bold">Creator</h3>
                     <span className="bg-brand-primary text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">Popular</span>
                   </div>
-                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹999' : '$15'}<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <div className="mb-6">
+                    {currency === 'USD' ? (
+                      <>
+                        <p className="text-3xl font-bold text-white">$15 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">₹999 /mo</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-3xl font-bold text-white">₹999 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">$15 /mo</p>
+                      </>
+                    )}
+                  </div>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Access to Paid Tools</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> High-Quality Voice Synthesis</li>
@@ -1533,19 +1483,29 @@ export default function App() {
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Support</li>
                   </ul>
                   <button 
-                    onClick={() => handleUpgrade('Creator', currency === 'INR' ? '₹999' : '$15')}
-                    disabled={userPlan.toLowerCase() === 'creator'}
+                    onClick={() => handleUpgrade('Creator', '$15 / ₹999')}
                     className={cn(
-                      "w-full py-3 rounded-xl font-bold transition-all",
-                      userPlan.toLowerCase() === 'creator' ? "bg-white/5 text-white/40 cursor-not-allowed border border-white/10" : "bg-brand-primary hover:shadow-lg hover:shadow-brand-primary/20"
+                      "w-full py-3 rounded-xl font-bold transition-all bg-brand-primary hover:shadow-lg hover:shadow-brand-primary/20"
                     )}
                   >
-                    {userPlan.toLowerCase() === 'creator' ? 'Current Plan' : 'Upgrade Now'}
+                    Upgrade Now
                   </button>
                 </div>
                 <div className="glass-panel p-8 border-white/10">
                   <h3 className="text-xl font-bold mb-2">Pro</h3>
-                  <p className="text-3xl font-bold mb-6">{currency === 'INR' ? '₹1,999' : '$29'}<span className="text-sm font-normal text-white/40">/mo</span></p>
+                  <div className="mb-6">
+                    {currency === 'USD' ? (
+                      <>
+                        <p className="text-3xl font-bold text-white">$29 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">₹1,999 /mo</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-3xl font-bold text-white">₹1,999 <span className="text-sm font-normal text-white/40">/mo</span></p>
+                        <p className="text-sm font-medium text-white/40 mt-1">$29 /mo</p>
+                      </>
+                    )}
+                  </div>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Full Access to Paid Tools</li>
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Ultra-Realistic Voice Cloning</li>
@@ -1553,14 +1513,12 @@ export default function App() {
                     <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Priority AI Processing</li>
                   </ul>
                   <button 
-                    onClick={() => handleUpgrade('Pro', currency === 'INR' ? '₹1,999' : '$29')}
-                    disabled={userPlan.toLowerCase() === 'pro'}
+                    onClick={() => handleUpgrade('Pro', '$29 / ₹1,999')}
                     className={cn(
-                      "w-full py-3 rounded-xl border border-white/10 font-bold transition-all",
-                      userPlan.toLowerCase() === 'pro' ? "bg-white/5 text-white/40 cursor-not-allowed" : "hover:bg-white/5"
+                      "w-full py-3 rounded-xl border border-white/10 font-bold transition-all hover:bg-white/5"
                     )}
                   >
-                    {userPlan.toLowerCase() === 'pro' ? 'Current Plan' : 'Upgrade Now'}
+                    Upgrade Now
                   </button>
                 </div>
               </div>
@@ -1581,7 +1539,39 @@ export default function App() {
                 </p>
               </header>
 
-              <div className="space-y-8">
+              <div className="space-y-8 relative">
+                {isToolLocked(activeTool) && (
+                  <div className="absolute inset-0 z-50 rounded-3xl backdrop-blur-md bg-black/40 flex flex-col items-center justify-center text-center p-8 border border-white/5 shadow-2xl">
+                    <motion.div 
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="max-w-md w-full flex flex-col items-center gap-6"
+                    >
+                      <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/30 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+                        <Lock className="w-8 h-8 text-blue-500" />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <h3 className="text-3xl font-bold tracking-tight">Access Restricted</h3>
+                        <p className="text-white/60 text-lg">
+                          {userPlan === 'none' ? "Upgrade to unlock all AI tools." : `The ${userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} plan does not include this feature.`}
+                        </p>
+                        <p className="text-white/20 text-xs mt-2 px-8">
+                          Basic Access: Thumbnail Analyzer, Voice Generator & Assistant Tools
+                        </p>
+                      </div>
+
+                      <button 
+                        onClick={() => setActiveTool('pricing')}
+                        className="mt-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-12 py-4 rounded-2xl transition-all shadow-lg shadow-blue-600/20 group"
+                      >
+                        <Zap className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                        Upgrade Now
+                      </button>
+                    </motion.div>
+                  </div>
+                )}
+
                 {/* Input Section */}
                 <div className="glass-panel p-8 space-y-6">
                   {activeTool === 'voice-gen' ? (
@@ -2204,7 +2194,7 @@ export default function App() {
                     <div className="space-y-6 relative">
                       <div className="absolute inset-0 bg-brand-dark/60 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-2xl border border-white/5">
                         <div className="bg-brand-primary/20 border border-brand-primary/40 px-6 py-3 rounded-xl shadow-[0_0_30px_rgba(255,0,0,0.2)]">
-                          <p className="text-xl font-bold tracking-widest uppercase text-white drop-shadow-lg">Not Awailable</p>
+                          <p className="text-xl font-bold tracking-widest uppercase text-white drop-shadow-lg">Not Available</p>
                         </div>
                       </div>
                       <div className="space-y-4 pointer-events-none opacity-50">
@@ -2230,29 +2220,70 @@ export default function App() {
                       <label className="text-xs font-bold uppercase tracking-widest text-white/40">
                         {activeTool === 'subtitles' ? 'Upload Video or Audio for Subtitles' : 'Upload Media'}
                       </label>
-                      <div 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-white/10 rounded-2xl p-12 flex flex-col items-center justify-center gap-4 hover:border-brand-primary/50 hover:bg-white/5 transition-all cursor-pointer group"
-                      >
-                        <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                          {activeTool === 'subtitles' ? <Type className="w-8 h-8 text-white/40 group-hover:text-brand-primary" /> : <Upload className="w-8 h-8 text-white/40 group-hover:text-brand-primary" />}
+                      
+                      {activeTool === 'subtitles' && !isGeneratingSubtitles && (
+                        <div className="flex flex-wrap gap-3">
+                          {['English', 'Hindi', 'Spanish', 'French', 'German'].map((lang) => (
+                            <button
+                              key={lang}
+                              onClick={() => setSubtitleLanguage(lang)}
+                              className={cn(
+                                "px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                                subtitleLanguage === lang 
+                                  ? "bg-brand-primary border-brand-primary text-white shadow-lg shadow-brand-primary/20" 
+                                  : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white"
+                              )}
+                            >
+                              {lang}
+                            </button>
+                          ))}
                         </div>
-                        <div className="text-center">
-                          <p className="font-medium">
-                            {activeTool === 'subtitles' ? 'Click to generate AI subtitles' : 'Click to upload or drag and drop'}
-                          </p>
-                          <p className="text-xs text-white/40 mt-1">
-                            MP3, WAV, MP4 up to 50MB
-                          </p>
+                      )}
+                      
+                      {activeTool === 'subtitles' && isGeneratingSubtitles ? (
+                        <div className="glass-panel p-12 flex flex-col items-center justify-center gap-6 border-brand-primary/20 bg-brand-primary/5">
+                          <div className="w-16 h-16 bg-brand-primary/10 rounded-full flex items-center justify-center">
+                            <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
+                          </div>
+                          <div className="w-full max-w-sm space-y-4">
+                            <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${subtitleProgress}%` }}
+                                className="h-full bg-brand-primary shadow-[0_0_10px_rgba(255,0,0,0.5)]"
+                              />
+                            </div>
+                            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest">
+                              <span className="text-white/40">AI Analysis in Progress...</span>
+                              <span className="text-brand-primary">{Math.round(subtitleProgress)}%</span>
+                            </div>
+                          </div>
                         </div>
-                        <input 
-                          type="file" 
-                          ref={fileInputRef} 
-                          onChange={handleFileUpload} 
-                          className="hidden" 
-                          accept="audio/*,video/*"
-                        />
-                      </div>
+                      ) : (
+                        <div 
+                          onClick={() => fileInputRef.current?.click()}
+                          className="border-2 border-dashed border-white/10 rounded-2xl p-12 flex flex-col items-center justify-center gap-4 hover:border-brand-primary/50 hover:bg-white/5 transition-all cursor-pointer group"
+                        >
+                          <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            {activeTool === 'subtitles' ? <Type className="w-8 h-8 text-white/40 group-hover:text-brand-primary" /> : <Upload className="w-8 h-8 text-white/40 group-hover:text-brand-primary" />}
+                          </div>
+                          <div className="text-center">
+                            <p className="font-medium">
+                              {activeTool === 'subtitles' ? 'Click to generate AI subtitles' : 'Click to upload or drag and drop'}
+                            </p>
+                            <p className="text-xs text-white/40 mt-1">
+                              MP3, WAV, MP4 up to 50MB
+                            </p>
+                          </div>
+                          <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            onChange={handleFileUpload} 
+                            className="hidden" 
+                            accept="audio/*,video/*"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2283,7 +2314,7 @@ export default function App() {
                                 onClick={() => copyToClipboard(result)}
                                 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
                               >
-                                <History className="w-4 h-4" />
+                                <Copy className="w-4 h-4" />
                                 Copy
                               </button>
                               <button 
@@ -2327,7 +2358,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {(activeTool === 'subtitles' || activeTool === 'audio-to-text') && result && (
+                      {activeTool === 'audio-to-text' && result && (
                         <div className="glass-panel p-6 bg-black/40 border-brand-primary/20 overflow-hidden relative group">
                           <div className="flex items-center gap-2 mb-4 text-brand-primary">
                             <Play className="w-4 h-4" />
@@ -2341,9 +2372,9 @@ export default function App() {
                               className="relative z-10 text-center"
                             >
                               <p className="text-lg font-bold text-white bg-black/60 px-4 py-1 rounded shadow-lg">
-                                {activeTool === 'subtitles' ? 
-                                  (result.split('\n').filter((l: string) => l.trim() && !l.includes('-->') && isNaN(parseInt(l)))[0] || "Generating live subtitles...") :
-                                  (result.split('\n').filter((l: string) => l.trim())[0]?.slice(0, 100) + (result.length > 100 ? '...' : '') || "Generating live transcription...")
+                                {activeTool === 'audio-to-text' ? 
+                                  (result.split('\n').filter((l: string) => l.trim())[0]?.slice(0, 100) + (result.length > 100 ? '...' : '') || "Generating live transcription...") :
+                                  "Processing..."
                                 }
                               </p>
                             </motion.div>
@@ -2425,11 +2456,29 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/20">Enter Transaction ID</label>
+                  <div className="relative group">
+                    <input 
+                      type="text" 
+                      placeholder="Paste your transaction ID here"
+                      value={transactionIdInput}
+                      onChange={(e) => setTransactionIdInput(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm font-mono focus:outline-none focus:border-brand-primary/50 transition-colors"
+                    />
+                  </div>
+                </div>
+
                 <div className="pt-2">
                   <button
                     onClick={() => {
-                      upgradePlan(selectedPlan.name);
+                      if (!transactionIdInput.trim()) {
+                        alert("Please enter the transaction ID first");
+                        return;
+                      }
+                      upgradePlan(selectedPlan?.name || '');
                       setShowUPIDialog(false);
+                      setTransactionIdInput('');
                     }}
                     className="w-full bg-brand-primary text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-brand-primary/20 transition-all"
                   >
@@ -2544,7 +2593,7 @@ export default function App() {
 {`Welcome to our website. We respect your privacy and are committed to protecting your personal information.
 
 ### Information we collect
-We may collect basic information such as email, name, login data, and usage history when you use our tools, create an account, or make a payment.
+We may collect basic information such as email, name, login data, and usage data when you use our tools, create an account, or make a payment.
 
 ### How we use information
 We use your information to provide services, improve our tools, manage user accounts, and process payments. We do not sell your personal information.
