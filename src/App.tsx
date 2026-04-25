@@ -58,10 +58,6 @@ import {
   serverTimestamp,
   addDoc,
   collection,
-  query,
-  where,
-  orderBy,
-  limit,
 } from './firebase';
 
 type Tool = 'dashboard' | 'voice-gen' | 'voice-clone' | 'subtitles' | 'video-enhancer' | 'channel-analyzer' | 'thumbnail-analyzer' | 'settings' | 'pricing' | 'title-gen' | 'tag-gen' | 'desc-gen' | 'audio-to-text';
@@ -166,14 +162,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-interface UserData {
-  uid: string;
-  email: string;
-  displayName: string;
-  plan: string;
-  createdAt: any;
-}
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -270,7 +258,7 @@ export default function App() {
               });
               setUserPlan('none');
             } else {
-              setUserPlan((userDoc.data().plan as string) || 'none');
+              setUserPlan((userDoc.data().plan as string)?.toLowerCase() || 'none');
             }
           } catch {
             console.warn("User plan fetch timed out, using default.");
@@ -282,8 +270,11 @@ export default function App() {
           // 2. Set up real-time listener for ALL future changes
           unsubscribeSnapshot = onSnapshot(userDocRef, (snapshot) => {
             if (snapshot.exists()) {
-              const updatedPlan = (snapshot.data().plan as string) || 'none';
+              const data = snapshot.data();
+              const updatedPlan = (data?.plan ? String(data.plan).trim().toLowerCase() : 'none');
               setUserPlan(updatedPlan);
+            } else {
+              setUserPlan('none');
             }
           }, (error) => {
             console.error("Firestore sync error:", error);
@@ -435,6 +426,7 @@ export default function App() {
       setLoading(false);
       setActiveTool('dashboard');
     } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "upgrade");
       console.error("Upgrade request failed:", error);
       clearTimeout(safetyTimeout);
       setShowProcessing(false);
@@ -516,11 +508,7 @@ export default function App() {
 
   const isToolLocked = (toolId: string) => {
     if (freeTools.some(t => t.id === toolId)) return false;
-    if (userPlan === 'pro' || userPlan === 'creator' || userPlan === 'enterprise') return false;
-    if (userPlan === 'starter') {
-      // Starter gets some basic AI tools: Voice Gen (Standard), Analytics (Basic)
-      return !['voice-gen', 'channel-analyzer', 'thumbnail-analyzer'].includes(toolId);
-    }
+    if (userPlan === 'pro' || userPlan === 'creator' || userPlan === 'starter' || userPlan === 'enterprise') return false;
     return true; // none plan - blocks all tools in 'tools' array
   };
 
@@ -1207,7 +1195,7 @@ export default function App() {
                         </span>
                       )}
                       {tool.status === 'Not Available' && (
-                        <span className="text-[8px] font-bold text-white bg-white/10 px-2 py-1 rounded uppercase tracking-widest border border-white/20">
+                        <span className="text-[8px] font-bold text-brand-primary bg-brand-primary/10 px-2 py-1 rounded uppercase tracking-widest border border-brand-primary/20">
                           Not Available
                         </span>
                       )}
@@ -1223,7 +1211,7 @@ export default function App() {
 
               <div className="flex items-center gap-2 text-brand-primary mt-16 mb-6">
                 <Sparkles className="w-4 h-4" />
-                <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Assistant Tools</h4>
+                <h4 className="text-xs font-bold uppercase tracking-[0.2em]">Free Tools</h4>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1445,9 +1433,9 @@ export default function App() {
                     )}
                   </div>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Free Tools Only</li>
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Standard Voice Quality</li>
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Basic Analytics</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Title Generator</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Tag Generator</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Description Generator</li>
                   </ul>
                   <button 
                     onClick={() => handleUpgrade('Starter', '$3 / ₹199')}
@@ -1547,8 +1535,8 @@ export default function App() {
                       animate={{ scale: 1, opacity: 1 }}
                       className="max-w-md w-full flex flex-col items-center gap-6"
                     >
-                      <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/30 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
-                        <Lock className="w-8 h-8 text-blue-500" />
+                      <div className="w-16 h-16 bg-brand-primary/10 border border-brand-primary/30 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(220,38,38,0.2)]">
+                        <Lock className="w-8 h-8 text-brand-primary" />
                       </div>
                       
                       <div className="space-y-2">
@@ -1556,14 +1544,14 @@ export default function App() {
                         <p className="text-white/60 text-lg">
                           {userPlan === 'none' ? "Upgrade to unlock all AI tools." : `The ${userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} plan does not include this feature.`}
                         </p>
-                        <p className="text-white/20 text-xs mt-2 px-8">
-                          Basic Access: Thumbnail Analyzer, Voice Generator & Assistant Tools
+                        <p className="text-white/20 text-xs mt-2 px-8 text-center leading-relaxed">
+                          Basic Access: Title Generator, Tag Generator & Description Generator
                         </p>
                       </div>
 
                       <button 
                         onClick={() => setActiveTool('pricing')}
-                        className="mt-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-12 py-4 rounded-2xl transition-all shadow-lg shadow-blue-600/20 group"
+                        className="mt-4 flex items-center gap-2 bg-brand-primary hover:bg-brand-primary/80 text-white font-bold px-12 py-4 rounded-2xl transition-all shadow-lg shadow-brand-primary/20 group"
                       >
                         <Zap className="w-5 h-5 group-hover:scale-110 transition-transform" />
                         Upgrade Now
