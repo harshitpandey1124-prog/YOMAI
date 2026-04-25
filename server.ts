@@ -16,45 +16,72 @@ async function startServer() {
     const { text, voiceName, languageCode, ssmlGender } = req.body;
     const apiKey = process.env.GOOGLE_CLOUD_TTS_API_KEY;
 
-    if (!apiKey) {
-      return res.status(500).json({ error: "GOOGLE_CLOUD_TTS_API_KEY is not configured in environment variables." });
-    }
-
     try {
-      const response = await fetch(
-        `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            input: { text },
-            voice: { languageCode, name: voiceName, ssmlGender },
-            audioConfig: { audioEncoding: "MP3" },
-          }),
-        }
-      );
+      let audioContent = "";
+      
+      // Try official Google Cloud TTS first if API key exists
+      if (apiKey) {
+        const response = await fetch(
+          `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              input: { text },
+              voice: { languageCode, name: voiceName, ssmlGender },
+              audioConfig: { audioEncoding: "MP3" },
+            }),
+          }
+        );
 
-      if (!response.ok) {
-        let message = "Failed to synthesize speech";
-        try {
-          const errorData = await response.json();
-          message = errorData.error?.message || message;
-        } catch {
-          message = response.statusText || message;
+        if (response.ok) {
+          const data = await response.json();
+          audioContent = data.audioContent;
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.warn("Official TTS failed, attempting fallback:", errorData.error?.message || response.statusText);
         }
-        
-        // Detect "API not enabled" error and provide a clear instruction
-        if (message.includes("Cloud Text-to-Speech API has not been used") || message.includes("disabled")) {
-          throw new Error(`Google Cloud Text-to-Speech API is not enabled. Please enable it here: https://console.cloud.google.com/apis/library/texttospeech.googleapis.com`);
-        }
-        
-        throw new Error(message);
       }
 
-      const data = await response.json();
-      res.json({ audioContent: data.audioContent });
+      // Fallback to unofficial Translate TTS if official failed or no key
+      if (!audioContent) {
+        console.log("Using Translate TTS fallback...");
+        // Translate TTS has a limit of ~200 characters per request.
+        const maxLength = 200;
+        const textChunks = [];
+        for (let i = 0; i < text.length; i += maxLength) {
+          textChunks.push(text.substring(i, i + maxLength));
+        }
+
+        const audioBuffers = [];
+        for (const chunk of textChunks) {
+          const encodedChunk = encodeURIComponent(chunk);
+          const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedChunk}&tl=${languageCode.split('-')[0]}&client=tw-ob`;
+          const fallbackResponse = await fetch(fallbackUrl);
+          
+          if (fallbackResponse.ok) {
+            audioBuffers.push(await fallbackResponse.arrayBuffer());
+          }
+        }
+
+        if (audioBuffers.length > 0) {
+          // Merge buffers (simplified: just concat)
+          const totalLength = audioBuffers.reduce((acc, curr) => acc + curr.byteLength, 0);
+          const combinedBuffer = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const buffer of audioBuffers) {
+            combinedBuffer.set(new Uint8Array(buffer), offset);
+            offset += buffer.byteLength;
+          }
+          audioContent = Buffer.from(combinedBuffer).toString('base64');
+        } else {
+          throw new Error("Both official and fallback TTS failed.");
+        }
+      }
+
+      res.json({ audioContent });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Internal Server Error";
       console.error("TTS Proxy Error:", message);

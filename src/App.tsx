@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { generateVoice, analyzeImage, analyzeText, transcribeAudio, generateSubtitles } from './services/gemini';
+import { generateVoice, analyzeImage, analyzeText, transcribeAudio, generateSubtitles, analyzeChannel } from './services/gemini';
 import ReactMarkdown from 'react-markdown';
 import { 
   auth, 
@@ -185,9 +185,6 @@ export default function App() {
   const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
   const [channelStats, setChannelStats] = useState<{
     name: string;
-    subscribers: string;
-    views: string;
-    videos: string;
     avatar: string;
   } | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
@@ -203,6 +200,7 @@ export default function App() {
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedBrowserVoice, setSelectedBrowserVoice] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [userPlan, setUserPlan] = useState<string>('none');
@@ -451,11 +449,28 @@ export default function App() {
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      setBrowserVoices(voices);
-      if (voices.length > 0 && !selectedBrowserVoice) {
-        // Prefer English voices if available
-        const enVoice = voices.find(v => v.lang.startsWith('en'));
-        setSelectedBrowserVoice(enVoice ? enVoice.name : voices[0].name);
+      
+      // Sort voices to put Hindi and English at the top
+      const sortedVoices = [...voices].sort((a, b) => {
+        const aHi = a.lang.startsWith('hi');
+        const bHi = b.lang.startsWith('hi');
+        if (aHi && !bHi) return -1;
+        if (!aHi && bHi) return 1;
+        
+        const aEn = a.lang.startsWith('en');
+        const bEn = b.lang.startsWith('en');
+        if (aEn && !bEn) return -1;
+        if (!aEn && bEn) return 1;
+        
+        return a.name.localeCompare(b.name);
+      });
+
+      setBrowserVoices(sortedVoices);
+      if (sortedVoices.length > 0 && !selectedBrowserVoice) {
+        // Prefer Hindi if available, otherwise English
+        const hiVoice = sortedVoices.find(v => v.lang.startsWith('hi'));
+        const enVoice = sortedVoices.find(v => v.lang.startsWith('en'));
+        setSelectedBrowserVoice(hiVoice ? hiVoice.name : (enVoice ? enVoice.name : sortedVoices[0].name));
       }
     };
     loadVoices();
@@ -483,6 +498,57 @@ export default function App() {
   const handleStop = () => {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
+  };
+
+  const handleDownloadVoice = async () => {
+    if (!inputText.trim()) return;
+    
+    setIsDownloading(true);
+    try {
+      const voice = browserVoices.find(v => v.name === selectedBrowserVoice);
+      const languageCode = voice?.lang || 'en-US';
+      
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: inputText,
+          languageCode: languageCode,
+          voiceName: '', 
+          ssmlGender: 'NEUTRAL'
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to download voice');
+      }
+
+      const { audioContent } = await response.json();
+      
+      const byteCharacters = atob(audioContent);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'audio/mp3' });
+      
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `voice-gen-${Date.now()}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert(error instanceof Error ? error.message : "Failed to download voice");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const tools = [
@@ -638,27 +704,44 @@ export default function App() {
     setChannelStats(null);
     
     try {
-      // Simulate API call to fetch channel data
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 1. Fetch real data via search-grounded Gemini
+      const responseText = await analyzeChannel(inputText);
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("JSON parse error:", e);
+        throw new Error("Failed to parse channel data.", { cause: e });
+      }
       
-      // Extract a name from the link or use a mock
-      const channelName = inputText.split('/').pop()?.replace('@', '') || "YouTube Creator";
+      // 2. Map data to state
+      setChannelStats({
+        name: data.name || "YouTube Creator",
+        avatar: data.avatar && data.avatar.startsWith('http') ? data.avatar : `https://api.dicebear.com/7.x/initials/svg?seed=${data.name || 'YT'}`
+      });
       
-      const stats = {
-        name: channelName.charAt(0).toUpperCase() + channelName.slice(1),
-        subscribers: (Math.floor(Math.random() * 900) + 100) + "K",
-        views: (Math.floor(Math.random() * 50) + 10) + "M",
-        videos: (Math.floor(Math.random() * 500) + 50).toString(),
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${channelName}`
-      };
+      // 3. Format the review result
+      const resultMarkdown = `
+## Growth Analysis
+**Growth Score: ${data.growthScore || 'N/A'}/10**
+
+### 💪 Strengths
+${(data.strengths || []).map((s: string) => `- ${s}`).join('\n')}
+
+### ⚠️ Weaknesses
+${(data.weaknesses || []).map((w: string) => `- ${w}`).join('\n')}
+
+### 🔥 वायरल Ideas
+${(data.viralIdeas || []).map((i: string) => `- ${i}`).join('\n')}
+
+### 📈 क्या improve करना चाहिए (Hindi Advice)
+${data.improvementHindi || 'सलाह उपलब्ध नहीं है'}
+      `;
+      setResult(resultMarkdown);
       
-      setChannelStats(stats);
-      
-      const review = await analyzeText(`Act as a YouTube growth expert. Review this channel: ${stats.name} with ${stats.subscribers} subscribers, ${stats.views} views, and ${stats.videos} videos. Provide 3 actionable growth tips.`);
-      setResult(review);
     } catch (error) {
       console.error(error);
-      setResult("Error analyzing channel. Please check the link.");
+      setResult("Error analyzing channel. Please check the link or try again later.");
     } finally {
       setLoading(false);
     }
@@ -1583,11 +1666,16 @@ export default function App() {
                               onChange={(e) => setSelectedBrowserVoice(e.target.value)}
                               className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white appearance-none focus:outline-none focus:border-brand-primary/50 transition-colors font-bold text-sm cursor-pointer"
                             >
-                              {browserVoices.map((voice, i) => (
-                                <option key={i} value={voice.name} className="bg-neutral-900 text-white">
-                                  {voice.name} ({voice.lang})
-                                </option>
-                              ))}
+                              {browserVoices.map((voice, i) => {
+                                const isRealistic = voice.name.toLowerCase().includes('google') || 
+                                                  voice.name.toLowerCase().includes('natural') ||
+                                                  voice.name.toLowerCase().includes('neural');
+                                return (
+                                  <option key={i} value={voice.name} className="bg-neutral-900 text-white">
+                                    {isRealistic ? '🌟 ' : ''}{voice.name} ({voice.lang}){isRealistic ? ' [Realistic]' : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                             <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white transition-colors">
                               <ChevronRight className="w-4 h-4 rotate-90" />
@@ -1622,6 +1710,18 @@ export default function App() {
                             <Square className="w-4 h-4" />
                             Stop
                           </button>
+                          <button
+                            onClick={handleDownloadVoice}
+                            disabled={!inputText.trim() || isDownloading}
+                            className="flex-1 bg-brand-primary text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-brand-primary/80 transition-all disabled:opacity-50 disabled:hover:bg-brand-primary min-w-[160px]"
+                          >
+                            {isDownloading ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            {isDownloading ? "Generating MP3..." : "Download MP3"}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1640,15 +1740,17 @@ export default function App() {
                               className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-white/20 focus:outline-none focus:border-brand-primary/50 transition-colors"
                             />
                           </div>
-                          <button
-                            onClick={handleAnalyzeChannel}
-                            disabled={loading || !inputText.trim()}
-                            className="px-8 bg-white text-black font-bold rounded-xl hover:bg-brand-primary hover:text-white transition-all disabled:opacity-50"
-                          >
-                            {loading ? (
-                              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                            ) : "Analyze"}
-                          </button>
+                          {(inputText.trim() && (inputText.includes('youtube.com/') || inputText.includes('youtu.be/'))) && (
+                            <button
+                              onClick={handleAnalyzeChannel}
+                              disabled={loading}
+                              className="px-8 bg-white text-black font-bold rounded-xl hover:bg-brand-primary hover:text-white transition-all disabled:opacity-50"
+                            >
+                              {loading ? (
+                                <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                              ) : "Analyze"}
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -1658,25 +1760,11 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1 }}
                           className="bg-white/5 border border-white/10 rounded-2xl p-6"
                         >
-                          <div className="flex items-center gap-4 mb-6">
+                          <div className="flex items-center gap-4">
                             <img src={channelStats.avatar} alt="Avatar" className="w-16 h-16 rounded-full bg-brand-primary/20 border border-white/10" />
                             <div>
                               <h3 className="text-xl font-bold">{channelStats.name}</h3>
                               <p className="text-xs text-white/40">YouTube Channel Overview</p>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="bg-black/40 border border-white/5 rounded-xl p-4 text-center">
-                              <p className="text-lg font-bold text-brand-primary">{channelStats.subscribers}</p>
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/20">Subscribers</p>
-                            </div>
-                            <div className="bg-black/40 border border-white/5 rounded-xl p-4 text-center">
-                              <p className="text-lg font-bold text-brand-primary">{channelStats.views}</p>
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/20">Total Views</p>
-                            </div>
-                            <div className="bg-black/40 border border-white/5 rounded-xl p-4 text-center">
-                              <p className="text-lg font-bold text-brand-primary">{channelStats.videos}</p>
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/20">Videos</p>
                             </div>
                           </div>
                         </motion.div>

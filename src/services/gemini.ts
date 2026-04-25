@@ -70,6 +70,38 @@ export const analyzeText = async (prompt: string) => {
   return response.text;
 };
 
+export const analyzeChannel = async (url: string) => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Analyze this YouTube channel: ${url}. 
+    Find real, current data for: Name and Channel Description/Niche.
+    
+    Act as a YouTube Growth Expert and provide:
+    1. Growth score (1-10)
+    2. List of Strengths
+    3. List of Weaknesses
+    4. 3 "वायरल" (Viral) content ideas based on their niche
+    5. Detailed advice on "क्या improve करना चाहिए" strictly in HINDI.
+
+    Format your response AS A VALID JSON OBJECT ONLY with this structure:
+    {
+      "name": "string",
+      "avatar": "string",
+      "growthScore": number,
+      "strengths": ["string"],
+      "weaknesses": ["string"],
+      "viralIdeas": ["string"],
+      "improvementHindi": "string"
+    }`,
+    config: {
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json"
+    }
+  });
+  return response.text;
+};
+
 export const generateSubtitles = async (audioBuffer: string, language: string = 'English') => {
   const ai = getAI();
   const response = await ai.models.generateContent({
