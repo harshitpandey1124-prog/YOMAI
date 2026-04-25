@@ -797,18 +797,23 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
             });
           }, 300);
 
-          try {
-            const srt = await generateSubtitles(base64, subtitleLanguage);
-            clearInterval(progressInterval);
-            setSubtitleProgress(100);
-            
-            // Artificial delay to let progress reach 100%
-            setTimeout(() => {
-              setSubtitleData(srt);
-              setResult(srt);
-              setIsGeneratingSubtitles(false);
-            }, 500);
-          } catch (err) {
+            try {
+              let srt = await generateSubtitles(base64, subtitleLanguage);
+              // Clean up markdown code blocks if the model included them
+              if (srt.includes('```')) {
+                srt = srt.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
+              }
+              
+              clearInterval(progressInterval);
+              setSubtitleProgress(100);
+              
+              // Artificial delay to let progress reach 100%
+              setTimeout(() => {
+                setSubtitleData(srt);
+                setResult(srt);
+                setIsGeneratingSubtitles(false);
+              }, 500);
+            } catch (err) {
             clearInterval(progressInterval);
             setIsGeneratingSubtitles(false);
             throw err;
@@ -817,7 +822,11 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
           setVideoFile(base64);
           setResult("Video uploaded successfully. Click 'Enhance Quality' to begin AI processing.");
         } else if (activeTool === 'voice-clone' || activeTool === 'audio-to-text') {
-          const transcription = await transcribeAudio(base64);
+          let transcription = await transcribeAudio(base64);
+          if (transcription.includes('```')) {
+            transcription = transcription.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
+          }
+          
           if (activeTool === 'voice-clone') {
             setResult(`Voice profile analyzed successfully. Reference transcript: "${transcription.slice(0, 100)}..."\n\nYou can now use this voice profile for generation.`);
           } else {

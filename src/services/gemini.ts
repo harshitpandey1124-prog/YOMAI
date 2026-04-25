@@ -104,12 +104,20 @@ export const analyzeChannel = async (url: string) => {
 
 export const generateSubtitles = async (audioBuffer: string, language: string = 'English') => {
   const ai = getAI();
+  const [meta, base64Data] = audioBuffer.split(',');
+  const mimeType = meta.split(':')[1].split(';')[0];
+  
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-live-preview",
     contents: {
       parts: [
-        { inlineData: { data: audioBuffer.split(',')[1], mimeType: "audio/mp3" } },
-        { text: `Generate professional SRT subtitles for this audio in ${language}. Include accurate timestamps and format it strictly as a valid .srt file. Do not include any other text.` }
+        { inlineData: { data: base64Data, mimeType: mimeType } },
+        { text: `Generate professional SRT subtitles for this media in ${language}. 
+        Requirements:
+        1. Accurate timestamps.
+        2. Strictly formatted as a valid .srt file.
+        3. Do NOT include any markdown code blocks or additional text. 
+        4. Start directly with the first subtitle block.` }
       ]
     }
   });
@@ -118,11 +126,14 @@ export const generateSubtitles = async (audioBuffer: string, language: string = 
 
 export const transcribeAudio = async (audioBuffer: string) => {
   const ai = getAI();
+  const [meta, base64Data] = audioBuffer.split(',');
+  const mimeType = meta.split(':')[1].split(';')[0];
+
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-live-preview",
     contents: {
       parts: [
-        { inlineData: { data: audioBuffer.split(',')[1], mimeType: "audio/mp3" } },
+        { inlineData: { data: base64Data, mimeType: mimeType } },
         { text: "Transcribe this audio exactly. Provide timestamps if possible." }
       ]
     }
