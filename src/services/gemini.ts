@@ -31,7 +31,7 @@ export const generateVoice = async (text: string, characterId: string = 'narrato
   const char = characters[characterId] || characters['narrator'];
   
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
+    model: "gemini-2.0-flash",
     contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
     config: {
       responseModalities: [Modality.AUDIO],
@@ -50,7 +50,7 @@ export const generateVoice = async (text: string, characterId: string = 'narrato
 export const analyzeImage = async (imageBuffer: string, prompt: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.0-flash",
     contents: {
       parts: [
         { inlineData: { data: imageBuffer.split(',')[1], mimeType: "image/png" } },
@@ -64,7 +64,7 @@ export const analyzeImage = async (imageBuffer: string, prompt: string) => {
 export const analyzeText = async (prompt: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.0-flash",
     contents: prompt,
   });
   return response.text;
@@ -73,7 +73,7 @@ export const analyzeText = async (prompt: string) => {
 export const analyzeChannel = async (url: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.0-flash",
     contents: `Analyze this YouTube channel: ${url}. 
     Find real, current data for: Name and Channel Description/Niche.
     
@@ -108,7 +108,7 @@ export const generateSubtitles = async (audioBuffer: string, language: string = 
   const mimeType = meta.split(':')[1].split(';')[0];
   
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-live-preview",
+    model: "gemini-2.0-flash",
     contents: {
       parts: [
         { inlineData: { data: base64Data, mimeType: mimeType } },
@@ -130,7 +130,7 @@ export const transcribeAudio = async (audioBuffer: string) => {
   const mimeType = meta.split(':')[1].split(';')[0];
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-live-preview",
+    model: "gemini-2.0-flash",
     contents: {
       parts: [
         { inlineData: { data: base64Data, mimeType: mimeType } },
