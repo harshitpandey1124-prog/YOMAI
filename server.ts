@@ -20,11 +20,6 @@ async function startServer() {
     next();
   });
 
-  // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
-  });
-
   // Google Cloud Text-to-Speech Proxy
   app.post("/api/tts", async (req, res) => {
     const { text, voiceName, languageCode, ssmlGender } = req.body;

@@ -1,12 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error("GEMINI_API_KEY is missing in the environment. Please check your settings.");
-}
-
-const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+// Use the ambient GEMINI_API_KEY provided by the environment
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 const getAIContent = async (reqContent: any, modelName: string = "gemini-3-flash-preview") => {
   try {
@@ -51,7 +47,7 @@ export const generateVoice = async (text: string, characterId: string = 'narrato
       model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
       config: {
-        responseModalities: ["AUDIO" as any],
+        responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName: char.voice },
