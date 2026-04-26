@@ -1,33 +1,73 @@
 const callAI = async (type: string, data: unknown, options: Record<string, unknown> = {}) => {
-  const response = await fetch("/api/ai/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, data, options })
-  });
+  try {
+    const response = await fetch("/api/ai/generate", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ type, data, options })
+    });
 
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || "AI processing failed");
+    const contentType = response.headers.get("content-type");
+    
+    if (!response.ok) {
+      let errorMessage = "AI processing failed";
+      if (contentType && contentType.includes("application/json")) {
+        const err = await response.json();
+        errorMessage = err.error || errorMessage;
+      } else {
+        const text = await response.text();
+        errorMessage = `Server Error (${response.status}): ${text.slice(0, 100)}...`;
+      }
+      throw new Error(errorMessage);
+    }
+
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error("Non-JSON response from AI API:", text.slice(0, 200));
+      throw new Error("Received invalid response format from server. Please try again.");
+    }
+
+    const result = await response.json();
+    return result.text;
+  } catch (err: any) {
+    console.error("CallAI Error:", err);
+    throw err;
   }
-
-  const result = await response.json();
-  return result.text;
 };
 
 export const generateVoice = async (text: string, characterId: string = 'narrator_m') => {
-  const response = await fetch("/api/ai/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: 'voice', data: { text, characterId } })
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || "Voice generation failed");
+  try {
+    const response = await fetch("/api/ai/generate", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ type: 'voice', data: { text, characterId } })
+    });
+  
+    const contentType = response.headers.get("content-type");
+  
+    if (!response.ok) {
+      let errorMessage = "Voice generation failed";
+      if (contentType && contentType.includes("application/json")) {
+        const err = await response.json();
+        errorMessage = err.error || errorMessage;
+      } else {
+        const text = await response.text();
+        errorMessage = `Server Error (${response.status}): ${text.slice(0, 50)}...`;
+      }
+      throw new Error(errorMessage);
+    }
+  
+    const result = await response.json();
+    return result.audio;
+  } catch (err: any) {
+    console.error("GenerateVoice Error:", err);
+    throw err;
   }
-
-  const result = await response.json();
-  return result.audio;
 };
 
 export const analyzeImage = async (imageBuffer: string, prompt: string) => {

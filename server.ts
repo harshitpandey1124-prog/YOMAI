@@ -12,6 +12,11 @@ async function startServer() {
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
+  });
+
   // Gemini AI Proxy
   app.post("/api/ai/generate", async (req, res) => {
     const { type, data, options } = req.body;
@@ -136,7 +141,7 @@ async function startServer() {
       }
 
       if (type === 'analyze-text') {
-        const result = await model.generateContent(data);
+        const result = await model.generateContent(data || "Tell me more about YouTube growth");
         return res.json({ text: result.response.text() });
       }
 
