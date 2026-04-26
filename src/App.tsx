@@ -1546,9 +1546,9 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
                     )}
                   </div>
                   <ul className="space-y-3 text-sm text-white/60 mb-8">
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Title Generator</li>
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Tag Generator</li>
-                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Description Generator</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Access to All AI Tools</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> Auto Subtitles AI (SRT)</li>
+                    <li className="flex items-center gap-2"><Sparkles className="w-3 h-3 text-brand-primary" /> AI Voice Generator</li>
                   </ul>
                   <button 
                     onClick={() => handleUpgrade('Starter', '$3 / ₹199')}
