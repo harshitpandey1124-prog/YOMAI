@@ -879,9 +879,12 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
             }
           }
           setLoading(false);
-        } catch (error: any) {
-          console.error("AI Implementation Error:", error);
-          setResult(`Error: ${error.message || "Failed to process AI request."}`);
+        } catch (err: unknown) {
+          console.error("AI Implementation Error:", err);
+          const errorMessage = err instanceof Error ? err.message : 
+                             typeof err === 'string' ? err : 
+                             JSON.stringify(err);
+          setResult(`Error: ${errorMessage || "Failed to process AI request."}`);
           setIsGeneratingSubtitles(false);
           setLoading(false);
         }

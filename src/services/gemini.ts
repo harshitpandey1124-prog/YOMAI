@@ -15,7 +15,8 @@ const callAI = async (type: string, data: unknown, options: Record<string, unkno
       let errorMessage = "AI processing failed";
       if (contentType && contentType.includes("application/json")) {
         const err = await response.json();
-        errorMessage = err.error || errorMessage;
+        const rawError = err.error || err.message || err;
+        errorMessage = typeof rawError === 'string' ? rawError : JSON.stringify(rawError);
       } else {
         const text = await response.text();
         errorMessage = `Server Error (${response.status}): ${text.slice(0, 100)}...`;
@@ -54,7 +55,8 @@ export const generateVoice = async (text: string, characterId: string = 'narrato
       let errorMessage = "Voice generation failed";
       if (contentType && contentType.includes("application/json")) {
         const err = await response.json();
-        errorMessage = err.error || errorMessage;
+        const rawError = err.error || err.message || err;
+        errorMessage = typeof rawError === 'string' ? rawError : JSON.stringify(rawError);
       } else {
         const text = await response.text();
         errorMessage = `Server Error (${response.status}): ${text.slice(0, 50)}...`;

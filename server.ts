@@ -28,8 +28,22 @@ async function startServer() {
 
     try {
       const { GoogleGenAI } = await import("@google/genai");
-      const client = new GoogleGenAI(apiKey);
-      const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const client = new GoogleGenAI({ apiKey } as any);
+      const model = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const getAIContent = async (reqContent: unknown) => {
+        const result = await (model as any).generateContent(reqContent);
+        const response = result.response;
+        try {
+          return response.text();
+        } catch (error) {
+          console.error("Gemini Response Error:", JSON.stringify(response, null, 2));
+          if (response.candidates?.[0]?.finishReason === 'SAFETY') {
+            throw new Error("Content flagged by safety filters. Please ensure your media is compliant.", { cause: error });
+          }
+          throw new Error("AI failed to generate a text response. Please try again.", { cause: error });
+        }
+      };
 
       if (type === 'voice') {
         const { text, characterId } = data;
@@ -53,7 +67,8 @@ async function startServer() {
         
         const char = characters[characterId] || characters['narrator_m'];
         
-        const result = await client.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({
+        const voiceModel = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await voiceModel.generateContent({
           contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
           generationConfig: {
             responseModalities: ["AUDIO"],
@@ -74,7 +89,7 @@ async function startServer() {
         const mimeType = meta.split(':')[1].split(';')[0];
         const language = options?.language || 'English';
 
-        const result = await model.generateContent([
+        const text = await getAIContent([
           {
             inlineData: {
               data: base64Data,
@@ -94,13 +109,13 @@ async function startServer() {
           }
         ]);
         
-        return res.json({ text: result.response.text() });
+        return res.json({ text });
       }
 
       if (type === 'transcribe') {
         const [meta, base64Data] = data.split(',');
         const mimeType = meta.split(':')[1].split(';')[0];
-        const result = await model.generateContent([
+        const text = await getAIContent([
           {
             inlineData: {
               data: base64Data,
@@ -109,11 +124,11 @@ async function startServer() {
           },
           { text: "Transcribe this media content exactly. Be verbatim." }
         ]);
-        return res.json({ text: result.response.text() });
+        return res.json({ text });
       }
 
       if (type === 'analyze-channel') {
-        const result = await model.generateContent([
+        const text = await getAIContent([
           {
             text: `Analyze this YouTube channel: ${data}. 
             Find real, current data for: Name and Channel Description/Niche.
@@ -137,18 +152,18 @@ async function startServer() {
             }`
           }
         ]);
-        return res.json({ text: result.response.text() });
+        return res.json({ text });
       }
 
       if (type === 'analyze-text') {
-        const result = await model.generateContent(data || "Tell me more about YouTube growth");
-        return res.json({ text: result.response.text() });
+        const text = await getAIContent(data || "Tell me more about YouTube growth");
+        return res.json({ text });
       }
 
       if (type === 'analyze-image') {
         const [meta, base64Data] = data.split(',');
         const mimeType = meta.split(':')[1].split(';')[0];
-        const result = await model.generateContent([
+        const text = await getAIContent([
           {
             inlineData: {
               data: base64Data,
@@ -157,7 +172,7 @@ async function startServer() {
           },
           { text: options?.prompt || "Analyze this image" }
         ]);
-        return res.json({ text: result.response.text() });
+        return res.json({ text });
       }
 
       res.status(400).json({ error: "Invalid AI type" });
