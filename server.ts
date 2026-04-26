@@ -9,7 +9,164 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+  // Gemini AI Proxy
+  app.post("/api/ai/generate", async (req, res) => {
+    const { type, data, options } = req.body;
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is missing on server" });
+    }
+
+    try {
+      const { GoogleGenAI, Modality } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+
+      if (type === 'voice') {
+        const { text, characterId } = data;
+        const characters: Record<string, { voice: string, style: string }> = {
+          'narrator_m': { voice: 'Kore', style: 'professional and clear male movie trailer narrator' },
+          'narrator_f': { voice: 'Puck', style: 'professional and clear female narrator' },
+          'hero_m': { voice: 'Charon', style: 'deep, authoritative, and heroic male dark knight' },
+          'hero_f': { voice: 'Zephyr', style: 'strong, determined, and heroic female warrior' },
+          'villain_m': { voice: 'Charon', style: 'dark, menacing, and cold male villain' },
+          'villain_f': { voice: 'Fenrir', style: 'mysterious, calculating, and cold female villain' },
+          'guide_m': { voice: 'Kore', style: 'friendly, warm, and helpful male AI assistant' },
+          'guide_f': { voice: 'Puck', style: 'friendly, warm, and helpful female AI assistant' },
+          'sage_m': { voice: 'Fenrir', style: 'mysterious, wise, and ancient male wizard' },
+          'sage_f': { voice: 'Zephyr', style: 'wise, mystical, and ancient female oracle' },
+          'host_m': { voice: 'Kore', style: 'young, energetic, and enthusiastic male radio host' },
+          'host_f': { voice: 'Zephyr', style: 'young, energetic, and enthusiastic female radio host' },
+          'anime_m': { voice: 'Zephyr', style: 'energetic and determined male anime protagonist' },
+          'anime_f': { voice: 'Puck', style: 'energetic and determined female anime protagonist' },
+          'robot': { voice: 'Kore', style: 'monotone, precise, and futuristic robot' }
+        };
+        
+        const char = characters[characterId] || characters['narrator_m'];
+        
+        const result = await ai.models.generateContent({
+          model: "gemini-3.1-flash-tts-preview",
+          contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: char.voice },
+              },
+            },
+          },
+        } as Parameters<typeof ai.models.generateContent>[0]);
+
+        const base64Audio = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        return res.json({ audio: base64Audio ? `data:audio/mp3;base64,${base64Audio}` : null });
+      }
+
+      if (type === 'subtitles') {
+        const [meta, base64Data] = data.split(',');
+        const mimeType = meta.split(':')[1].split(';')[0];
+        const language = options?.language || 'English';
+
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{
+            parts: [
+              { inlineData: { data: base64Data, mimeType: mimeType } },
+              { text: `Transcribe this media and generate professional SRT subtitles in ${language}. 
+              Requirements:
+              1. Accurate timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format.
+              2. Strictly formatted as a valid .srt file.
+              3. Break long sentences into readable subtitle blocks.
+              4. Do NOT include any markdown code blocks, metadata, or additional text. 
+              5. Start directly with '1' and the first timestamp.` }
+            ]
+          }]
+        });
+        return res.json({ text: result.text });
+      }
+
+      if (type === 'transcribe') {
+        const [meta, base64Data] = data.split(',');
+        const mimeType = meta.split(':')[1].split(';')[0];
+
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{
+            parts: [
+              { inlineData: { data: base64Data, mimeType: mimeType } },
+              { text: "Transcribe this audio exactly. Provide timestamps if possible." }
+            ]
+          }]
+        });
+        return res.json({ text: result.text });
+      }
+
+      if (type === 'analyze-image') {
+        const [meta, base64Data] = data.split(',');
+        const mimeType = meta.split(':')[1].split(';')[0];
+        const prompt = options?.prompt || "Analyze this image";
+
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{
+            parts: [
+              { inlineData: { data: base64Data, mimeType: mimeType } },
+              { text: prompt }
+            ]
+          }]
+        });
+        return res.json({ text: result.text });
+      }
+
+      if (type === 'analyze-text') {
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: data
+        });
+        return res.json({ text: result.text });
+      }
+
+      if (type === 'analyze-channel') {
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{
+            text: `Analyze this YouTube channel: ${data}. 
+            Find real, current data for: Name and Channel Description/Niche.
+            
+            Act as a YouTube Growth Expert and provide:
+            1. Growth score (1-10)
+            2. List of Strengths
+            3. List of Weaknesses
+            4. 3 "वायरल" (Viral) content ideas based on their niche
+            5. Detailed advice on "क्या improve करना चाहिए" strictly in HINDI.
+        
+            Format your response AS A VALID JSON OBJECT ONLY with this structure:
+            {
+              "name": "string",
+              "avatar": "string",
+              "growthScore": number,
+              "strengths": ["string"],
+              "weaknesses": ["string"],
+              "viralIdeas": ["string"],
+              "improvementHindi": "string"
+            }`
+          }],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+        return res.json({ text: result.text });
+      }
+
+      res.status(400).json({ error: "Invalid AI type" });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to process AI request";
+      console.error("AI Proxy Error:", message);
+      res.status(500).json({ error: message });
+    }
+  });
 
   // Google Cloud Text-to-Speech Proxy
   app.post("/api/tts", async (req, res) => {
