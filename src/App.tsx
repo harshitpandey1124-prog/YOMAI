@@ -241,25 +241,46 @@ export default function App() {
           setAuthLoading(false);
 
           // 1. Initial existence check and creation
-          const userDocPromise = getDoc(userDocRef);
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+          const userDocPromise = getDoc(userDocRef).catch(err => {
+            handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+          });
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 8000));
           
           try {
             const userDoc = await Promise.race([userDocPromise, timeoutPromise]) as { exists: () => boolean, data: () => Record<string, unknown> };
-            if (!userDoc.exists()) {
-              await setDoc(userDocRef, {
-                uid: user.uid,
-                email: user.email,
-                displayName: user.displayName || user.email?.split('@')[0] || 'User',
-                plan: 'none',
-                createdAt: serverTimestamp()
-              });
-              setUserPlan('none');
-            } else {
-              setUserPlan((userDoc.data().plan as string)?.toLowerCase() || 'none');
+            if (userDoc && !userDoc.exists()) {
+              try {
+                await setDoc(userDocRef, {
+                  uid: user.uid,
+                  email: user.email,
+                  displayName: user.displayName || user.email?.split('@')[0] || 'User',
+                  plan: 'none',
+                  createdAt: serverTimestamp(),
+                  lastLogin: serverTimestamp()
+                });
+                setUserPlan('none');
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+              }
+            } else if (userDoc) {
+              const existingData = userDoc.data();
+              setUserPlan((existingData.plan as string)?.toLowerCase() || 'none');
+              // Update lastLogin
+              try {
+                await setDoc(userDocRef, {
+                  uid: user.uid,
+                  email: user.email,
+                  displayName: user.displayName || user.email?.split('@')[0] || 'User',
+                  plan: existingData.plan || 'none',
+                  createdAt: existingData.createdAt,
+                  lastLogin: serverTimestamp()
+                });
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+              }
             }
-          } catch {
-            console.warn("User plan fetch timed out, using default.");
+          } catch (error) {
+            console.error("User doc processing error:", error);
             setUserPlan('none');
           } finally {
             clearTimeout(safetyTimer);

@@ -9,9 +9,10 @@
         "email": { "type": "string", "format": "email", "description": "The user's email address." },
         "displayName": { "type": "string", "description": "The user's display name." },
         "plan": { "type": "string", "enum": ["none", "starter", "creator", "pro", "enterprise"], "description": "The user's current subscription plan." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created." }
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created." },
+        "lastLogin": { "type": "string", "format": "date-time", "description": "The last time the user logged in." }
       },
-      "required": ["uid", "email", "plan", "createdAt"]
+      "required": ["uid", "email", "plan", "createdAt", "lastLogin"]
     },
     "Payment": {
       "title": "Payment Request",
