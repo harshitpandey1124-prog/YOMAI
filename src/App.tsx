@@ -792,42 +792,57 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
     setEnhancementProgress(0);
     setThumbnailPreview(null);
     setThumbnailScore(null);
+
+    // If subtitles tool, show the loading bar immediately
+    if (activeTool === 'subtitles') {
+      setIsGeneratingSubtitles(true);
+      setSubtitleProgress(5); // Start at 5% to show it started
+    }
+
     try {
       const reader = new FileReader();
+      
+      // Track file reading progress if possible
+      reader.onprogress = (event) => {
+        if (event.lengthComputable && activeTool === 'subtitles') {
+          const progress = (event.loaded / event.total) * 20; // First 20% for file reading
+          setSubtitleProgress(Math.max(5, progress));
+        }
+      };
+
       reader.onload = async () => {
-        const base64 = reader.result as string;
-        if (activeTool === 'thumbnail-analyzer') {
-          setThumbnailPreview(base64);
-          setThumbnailMetrics(null);
-          const analysis = await analyzeImage(base64, "Analyze this YouTube thumbnail for CTR, visual appeal, and branding. Provide a quality score out of 100, predicted CTR percentage (e.g., 8.5%), and detailed feedback. Also evaluate: Clickbait level (0-100), Brightness (0-100), Blur/Sharpness (0-100), and Text Readability (0-100).");
-          setResult(analysis);
-          // Simulate a score extraction or just set a random one for now
-          setThumbnailScore(Math.floor(Math.random() * 20) + 75);
-          setThumbnailMetrics({
-            clickbait: Math.floor(Math.random() * 40) + 20,
-            brightness: Math.floor(Math.random() * 30) + 60,
-            blur: Math.floor(Math.random() * 20) + 80,
-            readability: Math.floor(Math.random() * 30) + 70,
-            ctrPrediction: parseFloat((Math.random() * 10 + 2).toFixed(1)),
-            estimatedViews: (Math.floor(Math.random() * 500) + 50) + "K - " + (Math.floor(Math.random() * 2) + 1) + "M",
-          });
-        } else if (activeTool === 'subtitles') {
-          setIsGeneratingSubtitles(true);
-          setSubtitleProgress(0);
-          
-          const progressInterval = setInterval(() => {
-            setSubtitleProgress(prev => {
-              if (prev >= 95) {
-                clearInterval(progressInterval);
-                return 95;
-              }
-              return prev + Math.random() * 10;
+        try {
+          const base64 = reader.result as string;
+          if (activeTool === 'thumbnail-analyzer') {
+            setThumbnailPreview(base64);
+            setThumbnailMetrics(null);
+            const analysis = await analyzeImage(base64, "Analyze this YouTube thumbnail for CTR, visual appeal, and branding. Provide a quality score out of 100, predicted CTR percentage (e.g., 8.5%), and detailed feedback. Also evaluate: Clickbait level (0-100), Brightness (0-100), Blur/Sharpness (0-100), and Text Readability (0-100).");
+            setResult(analysis);
+            setThumbnailScore(Math.floor(Math.random() * 20) + 75);
+            setThumbnailMetrics({
+              clickbait: Math.floor(Math.random() * 40) + 20,
+              brightness: Math.floor(Math.random() * 30) + 60,
+              blur: Math.floor(Math.random() * 20) + 80,
+              readability: Math.floor(Math.random() * 30) + 70,
+              ctrPrediction: parseFloat((Math.random() * 10 + 2).toFixed(1)),
+              estimatedViews: (Math.floor(Math.random() * 500) + 50) + "K - " + (Math.floor(Math.random() * 2) + 1) + "M",
             });
-          }, 300);
+          } else if (activeTool === 'subtitles') {
+            setSubtitleProgress(25); // Jump to 25% after reading
+            
+            const progressInterval = setInterval(() => {
+              setSubtitleProgress(prev => {
+                if (prev >= 98) {
+                  clearInterval(progressInterval);
+                  return 98;
+                }
+                const increment = Math.random() * 5;
+                return prev + increment;
+              });
+            }, 500);
 
             try {
               let srt = await generateSubtitles(base64, subtitleLanguage);
-              // Clean up markdown code blocks if the model included them
               if (srt.includes('```')) {
                 srt = srt.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
               }
@@ -835,39 +850,55 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
               clearInterval(progressInterval);
               setSubtitleProgress(100);
               
-              // Artificial delay to let progress reach 100%
               setTimeout(() => {
                 setSubtitleData(srt);
                 setResult(srt);
                 setIsGeneratingSubtitles(false);
-              }, 500);
+                setLoading(false);
+              }, 600);
             } catch (err) {
-            clearInterval(progressInterval);
-            setIsGeneratingSubtitles(false);
-            throw err;
+              clearInterval(progressInterval);
+              setIsGeneratingSubtitles(false);
+              setLoading(false);
+              throw err;
+            }
+            return; // Exit here as loading is handled inside the async subtitles block
+          } else if (activeTool === 'video-enhancer') {
+            setVideoFile(base64);
+            setResult("Video uploaded successfully. Click 'Enhance Quality' to begin AI processing.");
+          } else if (activeTool === 'voice-clone' || activeTool === 'audio-to-text') {
+            let transcription = await transcribeAudio(base64);
+            if (transcription.includes('```')) {
+              transcription = transcription.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
+            }
+            
+            if (activeTool === 'voice-clone') {
+              setResult(`Voice profile analyzed successfully. Reference transcript: "${transcription.slice(0, 100)}..."\n\nYou can now use this voice profile for generation.`);
+            } else {
+              setResult(transcription);
+            }
           }
-        } else if (activeTool === 'video-enhancer') {
-          setVideoFile(base64);
-          setResult("Video uploaded successfully. Click 'Enhance Quality' to begin AI processing.");
-        } else if (activeTool === 'voice-clone' || activeTool === 'audio-to-text') {
-          let transcription = await transcribeAudio(base64);
-          if (transcription.includes('```')) {
-            transcription = transcription.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
-          }
-          
-          if (activeTool === 'voice-clone') {
-            setResult(`Voice profile analyzed successfully. Reference transcript: "${transcription.slice(0, 100)}..."\n\nYou can now use this voice profile for generation.`);
-          } else {
-            setResult(transcription);
-          }
+          setLoading(false);
+        } catch (error) {
+          console.error(error);
+          setResult("Error processing AI request.");
+          setIsGeneratingSubtitles(false);
+          setLoading(false);
         }
       };
+
+      reader.onerror = () => {
+        setResult("Error reading file.");
+        setLoading(false);
+        setIsGeneratingSubtitles(false);
+      };
+
       reader.readAsDataURL(file);
     } catch (error) {
       console.error(error);
-      setResult("Error processing file.");
-    } finally {
+      setResult("Error initiating file process.");
       setLoading(false);
+      setIsGeneratingSubtitles(false);
     }
   };
 
