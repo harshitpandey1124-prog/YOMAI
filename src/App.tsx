@@ -1403,11 +1403,11 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
                         <UserIcon className="w-4 h-4" />
                         {email}
                       </p>
-                      <div className="pt-2">
-                        <span className="bg-brand-primary/10 text-brand-primary text-[10px] font-bold px-2 py-1 rounded uppercase tracking-widest border border-brand-primary/20">
-                          {userPlan} Plan
-                        </span>
-                      </div>
+          <div className="pt-2">
+            <span className="bg-brand-primary/10 text-brand-primary text-[10px] font-bold px-2 py-1 rounded uppercase tracking-widest border border-brand-primary/20">
+              {userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan
+            </span>
+          </div>
                     </div>
                   </div>
 
@@ -1450,16 +1450,16 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-lg font-bold text-white">
-                            {userPlan === 'none' ? 'Free Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}
-                          </h3>
-                          <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded uppercase">
-                            {userPlan.trim().toLowerCase() === 'none' ? '$0/mo' : 
-                             userPlan.trim().toLowerCase() === 'starter' ? '$3 / ₹199 per month' : 
-                             userPlan.trim().toLowerCase() === 'creator' ? '$15 / ₹999 per month' : 
-                             userPlan.trim().toLowerCase() === 'pro' ? '$29 / ₹1,999 per month' :
-                             '$29 / ₹1,999 per month'}
-                          </span>
+                      <h3 className="text-lg font-bold text-white">
+                        {userPlan.toLowerCase() === 'none' ? 'Free Plan' : userPlan.charAt(0).toUpperCase() + userPlan.slice(1) + ' Plan'}
+                      </h3>
+                      <span className="text-[10px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded uppercase">
+                        {userPlan.toLowerCase() === 'none' ? '$0/mo' : 
+                         userPlan.toLowerCase() === 'starter' ? '$3 / ₹199 per month' : 
+                         userPlan.toLowerCase() === 'creator' ? '$15 / ₹999 per month' : 
+                         userPlan.toLowerCase() === 'pro' ? '$29 / ₹1,999 per month' :
+                         '$29 / ₹1,999 per month'}
+                      </span>
                         </div>
                         <p className="text-sm text-white/40">
                           {userPlan.toLowerCase() === 'none' ? 'Standard account features enabled' : 'Full access to AI tools enabled'}
@@ -1693,7 +1693,7 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
                       <div className="space-y-2">
                         <h3 className="text-3xl font-bold tracking-tight">Access Restricted</h3>
                         <p className="text-white/60 text-lg">
-                          {userPlan === 'none' ? "Upgrade to unlock all AI tools." : `The ${userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} plan does not include this feature.`}
+                          {userPlan.toLowerCase() === 'none' ? "Upgrade to unlock all AI tools." : `The ${userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} plan does not include this feature.`}
                         </p>
                         <p className="text-white/20 text-xs mt-2 px-8 text-center leading-relaxed">
                           Basic Access: Title Generator, Tag Generator & Description Generator

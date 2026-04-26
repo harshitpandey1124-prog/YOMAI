@@ -69,22 +69,33 @@ async function startServer() {
         const mimeType = meta.split(':')[1].split(';')[0];
         const language = options?.language || 'English';
 
-        const result = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [{
-            parts: [
-              { inlineData: { data: base64Data, mimeType: mimeType } },
-              { text: `Transcribe this media and generate professional SRT subtitles in ${language}. 
-              Requirements:
-              1. Accurate timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format.
-              2. Strictly formatted as a valid .srt file.
-              3. Break long sentences into readable subtitle blocks.
-              4. Do NOT include any markdown code blocks, metadata, or additional text. 
-              5. Start directly with '1' and the first timestamp.` }
-            ]
-          }]
-        });
-        return res.json({ text: result.text });
+        try {
+          const result = await ai.models.generateContent({
+            model: "gemini-2.0-flash",
+            contents: [{
+              parts: [
+                { inlineData: { data: base64Data, mimeType: mimeType } },
+                { text: `Transcribe this media and generate professional SRT subtitles in ${language}. 
+                Requirements:
+                1. Accurate timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format.
+                2. Strictly formatted as a valid .srt file.
+                3. Break long sentences into readable subtitle blocks.
+                4. Do NOT include any markdown code blocks, metadata, or additional text. 
+                5. Start directly with '1' and the first timestamp.
+                
+                Safety: Ensure the transcription is verbatim and objective based on the provided audio.` }
+              ]
+            }]
+          });
+          return res.json({ text: result.text });
+        } catch (mediaErr: any) {
+          console.error("Gemini Media Error:", mediaErr);
+          // Special handling for common media issues
+          if (mediaErr.message?.includes("Safety")) {
+            throw new Error("AI refused to transcribe this content due to safety filters. Please ensure the media doesn't violate terms.");
+          }
+          throw mediaErr;
+        }
       }
 
       if (type === 'transcribe') {
@@ -92,7 +103,7 @@ async function startServer() {
         const mimeType = meta.split(':')[1].split(';')[0];
 
         const result = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: "gemini-2.0-flash",
           contents: [{
             parts: [
               { inlineData: { data: base64Data, mimeType: mimeType } },
@@ -109,7 +120,7 @@ async function startServer() {
         const prompt = options?.prompt || "Analyze this image";
 
         const result = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: "gemini-2.0-flash",
           contents: [{
             parts: [
               { inlineData: { data: base64Data, mimeType: mimeType } },
@@ -122,7 +133,7 @@ async function startServer() {
 
       if (type === 'analyze-text') {
         const result = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: "gemini-2.0-flash",
           contents: data
         });
         return res.json({ text: result.text });
@@ -130,7 +141,7 @@ async function startServer() {
 
       if (type === 'analyze-channel') {
         const result = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: "gemini-2.0-flash",
           contents: [{
             text: `Analyze this YouTube channel: ${data}. 
             Find real, current data for: Name and Channel Description/Niche.
