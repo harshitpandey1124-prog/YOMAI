@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -12,12 +13,24 @@ async function startServer() {
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+  // Request logger
+  app.use((req, res, next) => {
+    if (req.url.startsWith('/api')) {
+      console.log(`[API Request]: ${req.method} ${req.url}`);
+    }
+    next();
+  });
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
   });
 
   // Gemini AI Proxy
+  app.get("/api/ai/generate", (req, res) => {
+    res.json({ message: "Gemini API Proxy is alive. Use POST to generate." });
+  });
+
   app.post("/api/ai/generate", async (req, res) => {
     const { type, data, options } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
@@ -27,12 +40,11 @@ async function startServer() {
     }
 
     try {
-      const { GoogleGenAI } = await import("@google/genai");
-      const client = new GoogleGenAI({ apiKey } as any);
-      const model = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
+      const client = new GoogleGenAI(apiKey);
+      const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const getAIContent = async (reqContent: unknown) => {
-        const result = await (model as any).generateContent(reqContent);
+        const result = await model.generateContent(reqContent as any);
         const response = result.response;
         try {
           return response.text();
@@ -67,7 +79,7 @@ async function startServer() {
         
         const char = characters[characterId] || characters['narrator_m'];
         
-        const voiceModel = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
+        const voiceModel = client.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await voiceModel.generateContent({
           contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
           generationConfig: {
@@ -259,6 +271,16 @@ async function startServer() {
       console.error("TTS Proxy Error:", message);
       res.status(500).json({ error: message });
     }
+  });
+
+  // API 404 handler
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API 404]: ${req.method} ${req.url}`);
+    res.status(404).json({ 
+      error: "API endpoint not found", 
+      path: req.url,
+      method: req.method
+    });
   });
 
   // Vite middleware for development
