@@ -1,145 +1,51 @@
-import { GoogleGenAI } from "@google/genai";
+const callAI = async (type: string, data: unknown, options: Record<string, unknown> = {}) => {
+  const response = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, data, options })
+  });
 
-const getAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
-  return new GoogleGenAI({ apiKey });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || "AI processing failed");
+  }
+
+  const result = await response.json();
+  return result.text;
 };
 
 export const generateVoice = async (text: string, characterId: string = 'narrator_m') => {
-  const ai = getAI();
-  
-  const characters: Record<string, { voice: string, style: string }> = {
-    'narrator_m': { voice: 'Kore', style: 'professional and clear male movie trailer narrator' },
-    'narrator_f': { voice: 'Puck', style: 'professional and clear female narrator' },
-    'hero_m': { voice: 'Charon', style: 'deep, authoritative, and heroic male dark knight' },
-    'hero_f': { voice: 'Zephyr', style: 'strong, determined, and heroic female warrior' },
-    'villain_m': { voice: 'Charon', style: 'dark, menacing, and cold male villain' },
-    'villain_f': { voice: 'Fenrir', style: 'mysterious, calculating, and cold female villain' },
-    'guide_m': { voice: 'Kore', style: 'friendly, warm, and helpful male AI assistant' },
-    'guide_f': { voice: 'Puck', style: 'friendly, warm, and helpful female AI assistant' },
-    'sage_m': { voice: 'Fenrir', style: 'mysterious, wise, and ancient male wizard' },
-    'sage_f': { voice: 'Zephyr', style: 'wise, mystical, and ancient female oracle' },
-    'host_m': { voice: 'Kore', style: 'young, energetic, and enthusiastic male radio host' },
-    'host_f': { voice: 'Zephyr', style: 'young, energetic, and enthusiastic female radio host' },
-    'anime_m': { voice: 'Zephyr', style: 'energetic and determined male anime protagonist' },
-    'anime_f': { voice: 'Puck', style: 'energetic and determined female anime protagonist' },
-    'robot': { voice: 'Kore', style: 'monotone, precise, and futuristic robot' }
-  };
-  
-  const char = characters[characterId] || characters['narrator_m'];
-  
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-tts-preview",
-    contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
-    config: {
-      responseModalities: ['AUDIO'],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: char.voice as any },
-        },
-      },
-    },
-  } as any);
+  const response = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: 'voice', data: { text, characterId } })
+  });
 
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  return base64Audio ? `data:audio/mp3;base64,${base64Audio}` : null;
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || "Voice generation failed");
+  }
+
+  const result = await response.json();
+  return result.audio;
 };
 
 export const analyzeImage = async (imageBuffer: string, prompt: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: {
-      parts: [
-        { inlineData: { data: imageBuffer.split(',')[1], mimeType: "image/png" } },
-        { text: prompt }
-      ]
-    }
-  });
-  return response.text;
+  return callAI('analyze-image', imageBuffer, { prompt });
 };
 
 export const analyzeText = async (prompt: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: prompt,
-  });
-  return response.text;
+  return callAI('analyze-text', prompt);
 };
 
 export const analyzeChannel = async (url: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: [{
-      text: `Analyze this YouTube channel: ${url}. 
-      Find real, current data for: Name and Channel Description/Niche.
-      
-      Act as a YouTube Growth Expert and provide:
-      1. Growth score (1-10)
-      2. List of Strengths
-      3. List of Weaknesses
-      4. 3 "वायरल" (Viral) content ideas based on their niche
-      5. Detailed advice on "क्या improve करना चाहिए" strictly in HINDI.
-
-      Format your response AS A VALID JSON OBJECT ONLY with this structure:
-      {
-        "name": "string",
-        "avatar": "string",
-        "growthScore": number,
-        "strengths": ["string"],
-        "weaknesses": ["string"],
-        "viralIdeas": ["string"],
-        "improvementHindi": "string"
-      }`
-    }],
-    config: {
-      responseMimeType: "application/json"
-    }
-  });
-  return response.text;
+  return callAI('analyze-channel', url);
 };
 
 export const generateSubtitles = async (audioBuffer: string, language: string = 'English') => {
-  const ai = getAI();
-  const [meta, base64Data] = audioBuffer.split(',');
-  const mimeType = meta.split(':')[1].split(';')[0];
-  
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: {
-      parts: [
-        { inlineData: { data: base64Data, mimeType: mimeType } },
-        { text: `Transcribe this media and generate professional SRT subtitles in ${language}. 
-        Requirements:
-        1. Accurate timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format.
-        2. Strictly formatted as a valid .srt file.
-        3. Break long sentences into readable subtitle blocks.
-        4. Do NOT include any markdown code blocks, metadata, or additional text. 
-        5. Start directly with '1' and the first timestamp.
-        
-        Safety: Ensure the transcription is verbatim and objective based on the provided audio.` }
-      ]
-    }
-  });
-  return response.text;
+  return callAI('subtitles', audioBuffer, { language });
 };
 
 export const transcribeAudio = async (audioBuffer: string) => {
-  const ai = getAI();
-  const [meta, base64Data] = audioBuffer.split(',');
-  const mimeType = meta.split(':')[1].split(';')[0];
-
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: {
-      parts: [
-        { inlineData: { data: base64Data, mimeType: mimeType } },
-        { text: "Transcribe this audio exactly. Provide timestamps if possible." }
-      ]
-    }
-  });
-  return response.text;
+  return callAI('transcribe', audioBuffer);
 };
