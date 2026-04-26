@@ -34,7 +34,8 @@ import {
   Shield,
   Lock,
   X,
-  Loader2
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -468,6 +469,21 @@ export default function App() {
         setShowProcessing(false);
       }, 500);
     }
+  };
+
+  const resetTool = () => {
+    setResult(null);
+    setSubtitleData(null);
+    setAudioUrl(null);
+    setVideoFile(null);
+    setEnhancedVideoUrl(null);
+    setLoading(false);
+    setIsGeneratingSubtitles(false);
+    setSubtitleProgress(0);
+    setThumbnailPreview(null);
+    setThumbnailScore(null);
+    setThumbnailMetrics(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   useEffect(() => {
@@ -2514,16 +2530,70 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
                             </a>
                           )}
                           {activeTool === 'subtitles' && subtitleData && (
-                            <button 
-                              onClick={downloadSubtitles}
-                              className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand-primary hover:text-white transition-colors"
-                            >
-                              <Download className="w-4 h-4" />
-                              Download SRT
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <button 
+                                onClick={resetTool}
+                                className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Reset
+                              </button>
+                              <button 
+                                onClick={downloadSubtitles}
+                                className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand-primary hover:text-white transition-colors"
+                              >
+                                <Download className="w-4 h-4" />
+                                Download SRT
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
+
+                      {activeTool === 'subtitles' && subtitleData && (
+                        <div className="glass-panel p-6 bg-black border-white/5 overflow-hidden relative group">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2 text-brand-primary">
+                              <Play className="w-4 h-4" />
+                              <span className="text-[10px] font-bold uppercase tracking-widest">Cinematic Preview</span>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-white/20">Previewing Subtitle Timing</span>
+                          </div>
+                          
+                          <div className="h-64 bg-neutral-900 rounded-xl relative overflow-hidden flex flex-col items-center justify-center p-8">
+                            <motion.div 
+                              animate={{ opacity: [0.3, 0.5, 0.3] }}
+                              transition={{ duration: 4, repeat: Infinity }}
+                              className="absolute inset-0 bg-gradient-to-br from-brand-primary/10 via-transparent to-orange-500/5" 
+                            />
+                            
+                            <div className="relative z-10 w-full max-w-lg text-center space-y-4">
+                              <div className="flex justify-center gap-2 mb-8">
+                                <div className="w-1 h-8 bg-brand-primary/20 rounded-full" />
+                                <div className="w-1 h-12 bg-brand-primary/40 rounded-full" />
+                                <div className="w-1 h-10 bg-brand-primary rounded-full animate-pulse" />
+                                <div className="w-1 h-6 bg-brand-primary/40 rounded-full" />
+                                <div className="w-1 h-8 bg-brand-primary/20 rounded-full" />
+                              </div>
+
+                              <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="inline-block"
+                              >
+                                <p className="text-xl md:text-2xl font-bold text-white mb-2 leading-tight">
+                                  {subtitleData.split('\n').find(line => !line.match(/^\d+$/) && !line.includes('-->') && line.trim()) || "Subtitles generated successfully."}
+                                </p>
+                                <div className="h-1 w-24 bg-brand-primary mx-auto rounded-full shadow-[0_0_10px_rgba(255,0,0,0.5)]" />
+                              </motion.div>
+                              
+                              <div className="text-[10px] font-mono text-white/20 uppercase tracking-[0.2em] pt-4">
+                                Verifying Sync across {subtitleData.split('\n').filter(l => l.includes('-->')).length} cues
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {activeTool === 'audio-to-text' && result && (
                         <div className="glass-panel p-6 bg-black/40 border-brand-primary/20 overflow-hidden relative group">
