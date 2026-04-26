@@ -415,6 +415,13 @@ export default function App() {
         }
       );
 
+      // 🔹 Also update the user document directly so they get instant access
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(userDocRef, {
+        plan: plan.toLowerCase(),
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+
       // 🔹 Send email automatically
       const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || "YOUR_SERVICE_ID";
       const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || "YOUR_TEMPLATE_ID";
@@ -595,7 +602,8 @@ export default function App() {
 
   const isToolLocked = (toolId: string) => {
     if (freeTools.some(t => t.id === toolId)) return false;
-    if (userPlan === 'pro' || userPlan === 'creator' || userPlan === 'starter' || userPlan === 'enterprise') return false;
+    const plan = userPlan?.trim().toLowerCase();
+    if (['pro', 'creator', 'starter', 'enterprise'].includes(plan)) return false;
     return true; // none plan - blocks all tools in 'tools' array
   };
 
@@ -681,7 +689,7 @@ export default function App() {
   };
 
   const handleEnhance = async () => {
-    if (userPlan === 'none') {
+    if (isToolLocked('video-enhancer')) {
       setActiveTool('pricing');
       return;
     }
@@ -715,7 +723,7 @@ export default function App() {
   };
 
   const handleAnalyzeChannel = async () => {
-    if (userPlan === 'none') {
+    if (isToolLocked('channel-analyzer')) {
       setActiveTool('pricing');
       return;
     }
@@ -769,8 +777,7 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const isPaidTool = tools.some(t => t.id === activeTool);
-    if (isPaidTool && userPlan === 'none') {
+    if (isToolLocked(activeTool)) {
       setActiveTool('pricing');
       return;
     }

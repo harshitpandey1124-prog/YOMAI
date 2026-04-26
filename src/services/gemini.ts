@@ -112,12 +112,13 @@ export const generateSubtitles = async (audioBuffer: string, language: string = 
     contents: {
       parts: [
         { inlineData: { data: base64Data, mimeType: mimeType } },
-        { text: `Generate professional SRT subtitles for this media in ${language}. 
+        { text: `Transcribe this media and generate professional SRT subtitles in ${language}. 
         Requirements:
-        1. Accurate timestamps.
+        1. Accurate timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format.
         2. Strictly formatted as a valid .srt file.
-        3. Do NOT include any markdown code blocks or additional text. 
-        4. Start directly with the first subtitle block.` }
+        3. Break long sentences into readable subtitle blocks.
+        4. Do NOT include any markdown code blocks, metadata, or additional text. 
+        5. Start directly with '1' and the first timestamp.` }
       ]
     }
   });
