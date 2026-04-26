@@ -1,6 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const callAI = async (type: string, data: unknown, options: Record<string, unknown> = {}) => {
   try {
-    const response = await fetch("/api/ai/generate", {
+    const targetUrl = "/api/ai/generate";
+    console.log(`[AI Request] Calling: ${targetUrl} for ${type}`);
+    
+    const response = await fetch(targetUrl, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
@@ -12,14 +16,18 @@ const callAI = async (type: string, data: unknown, options: Record<string, unkno
     const contentType = response.headers.get("content-type");
     
     if (!response.ok) {
-      let errorMessage = "AI processing failed";
-      if (contentType && contentType.includes("application/json")) {
-        const err = await response.json();
-        const rawError = err.error || err.message || err;
-        errorMessage = typeof rawError === 'string' ? rawError : JSON.stringify(rawError);
-      } else {
-        const text = await response.text();
-        errorMessage = `Server Error (${response.status}): ${text.slice(0, 100)}...`;
+      let errorMessage = `AI Request Failed (${response.status} ${response.statusText})`;
+      try {
+        if (contentType && contentType.includes("application/json")) {
+          const err = await response.json();
+          const rawError = err.error || err.message || err;
+          errorMessage = typeof rawError === 'string' ? rawError : JSON.stringify(rawError);
+        } else {
+          const text = await response.text();
+          errorMessage = `Server Error (${response.status}): ${text.slice(0, 200)}`;
+        }
+      } catch {
+        errorMessage = `Failed to parse error response: ${response.status} ${response.statusText}`;
       }
       throw new Error(errorMessage);
     }
@@ -40,7 +48,10 @@ const callAI = async (type: string, data: unknown, options: Record<string, unkno
 
 export const generateVoice = async (text: string, characterId: string = 'narrator_m') => {
   try {
-    const response = await fetch("/api/ai/generate", {
+    const targetUrl = "/api/ai/generate";
+    console.log(`[Voice AI] Calling: ${targetUrl}`);
+
+    const response = await fetch(targetUrl, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",

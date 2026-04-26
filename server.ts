@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -40,11 +41,11 @@ async function startServer() {
     }
 
     try {
-      const client = new GoogleGenAI(apiKey);
-      const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const client = new GoogleGenAI({ apiKey } as any);
+      const model = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const getAIContent = async (reqContent: unknown) => {
-        const result = await model.generateContent(reqContent as any);
+        const result = await (model as any).generateContent(reqContent);
         const response = result.response;
         try {
           return response.text();
@@ -79,7 +80,7 @@ async function startServer() {
         
         const char = characters[characterId] || characters['narrator_m'];
         
-        const voiceModel = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const voiceModel = (client as any).getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await voiceModel.generateContent({
           contents: [{ parts: [{ text: `Say this as a ${char.style}: ${text}` }] }],
           generationConfig: {

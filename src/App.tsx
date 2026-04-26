@@ -600,6 +600,26 @@ export default function App() {
     { id: 'pricing', name: 'Plans & Pricing', icon: CreditCard, desc: 'Manage Subscription' },
   ];
 
+  // Add health check
+  useEffect(() => {
+    const checkAPI = async () => {
+      try {
+        const res = await fetch("/api/health");
+        if (res.ok) {
+          const data = await res.json();
+          console.log("[Health Check] API is operational:", data);
+        } else {
+          console.error("[Health Check] API check failed:", res.status);
+          setResult(`System Warning: API connection issue (${res.status}). Some features may be unavailable.`);
+        }
+      } catch (err) {
+        console.error("[Health Check] API unreachable:", err);
+        setResult("System Warning: API is unreachable. Please wait while the system restarts.");
+      }
+    };
+    checkAPI();
+  }, []);
+
   const isToolLocked = (toolId: string) => {
     if (freeTools.some(t => t.id === toolId)) return false;
     const plan = userPlan?.trim().toLowerCase();
