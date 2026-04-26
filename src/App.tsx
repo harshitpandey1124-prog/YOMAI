@@ -879,9 +879,9 @@ ${data.improvementHindi || 'सलाह उपलब्ध नहीं है'
             }
           }
           setLoading(false);
-        } catch (error) {
-          console.error(error);
-          setResult("Error processing AI request.");
+        } catch (error: any) {
+          console.error("AI Implementation Error:", error);
+          setResult(`Error: ${error.message || "Failed to process AI request."}`);
           setIsGeneratingSubtitles(false);
           setLoading(false);
         }
